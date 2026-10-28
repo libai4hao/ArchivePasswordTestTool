@@ -326,7 +326,7 @@
     <value>已更新到 {0}。</value>
   </data>
   <data name="InteractiveMultiInputHint" xml:space="preserve">
-    <value>可拖入或输入多个路径，输入空行结束。</value>
+    <value>可拖入或输入多个路径；直接按 Enter（空输入）结束本列表。</value>
   </data>
   <data name="BatchNoArchives" xml:space="preserve">
     <value>未找到可处理的压缩包。</value>

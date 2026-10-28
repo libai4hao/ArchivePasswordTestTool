@@ -326,7 +326,7 @@
     <value>{0} に更新しました。</value>
   </data>
   <data name="InteractiveMultiInputHint" xml:space="preserve">
-    <value>複数のパスをドロップまたは入力できます。空行で終了します。</value>
+    <value>複数のパスをドロップ/入力できます。空のまま Enter で終了します。</value>
   </data>
   <data name="BatchNoArchives" xml:space="preserve">
     <value>処理可能なアーカイブが見つかりません。</value>

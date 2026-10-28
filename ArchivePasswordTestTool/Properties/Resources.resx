@@ -326,7 +326,7 @@ You can also download it manually from the releases page.</value>
     <value>Updated to {0}.</value>
   </data>
   <data name="InteractiveMultiInputHint" xml:space="preserve">
-    <value>Drop or enter paths; press Enter on an empty line to finish.</value>
+    <value>Drop or enter paths; press Enter with an empty input to finish this list.</value>
   </data>
   <data name="BatchNoArchives" xml:space="preserve">
     <value>No processable archives found.</value>

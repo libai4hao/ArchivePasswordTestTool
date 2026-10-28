@@ -129,9 +129,10 @@ namespace ArchivePasswordTestTool
 
         /// <summary>
         /// 把一次输入拆成多个路径：
-        /// Windows 控制台一次拖入多个文件时，产生的字符流形如 <c>"C:\a 1.7z" "C:\b.7z"</c>；
-        /// 手动输入通常没有引号，此时整串视为一个路径（含空格也保持完整）。
-        /// 引号内的空格不拆分，引号外的空白仅作分隔。
+        /// Windows 控制台一次拖入多个文件时，产生的字符流形如
+        /// <c>"C:\a 1.7z" "C:\b.7z"</c>（含空格的路径带引号）或
+        /// <c>C:\a.7z C:\b.7z</c>（无空格路径不带引号，仅以空白分隔）。
+        /// 引号内的空白不拆分，引号外的空白一律视为分隔符。
         /// </summary>
         public static List<string> SplitPaths(string raw)
         {
@@ -164,24 +165,33 @@ namespace ArchivePasswordTestTool
                     continue;
                 }
 
-                // 未加引号：从当前位置到下一个引号（或行尾）整体视为一个路径
-                int quoted = raw.IndexOf('"', i);
-                string segment = quoted < 0 ? raw[i..] : raw[i..quoted];
-                string path = NormalizePath(segment);
-                if (path.Length > 0)
+                // 未加引号：读到下一个空白或引号为止
+                int start = i;
+                while (i < raw.Length && !char.IsWhiteSpace(raw[i]) && raw[i] != '"')
                 {
-                    paths.Add(path);
+                    i++;
                 }
 
-                if (quoted < 0)
-                {
-                    break;
-                }
-
-                i = quoted;
+                paths.Add(NormalizePath(raw[start..i]));
             }
 
             return paths.Where(path => path.Length > 0).ToList();
+        }
+
+        /// <summary>
+        /// 解析一次输入中的路径。优先把整串当作一个路径：手动输入含空格的路径
+        /// （或拖入单个含空格的文件）时，整串是有效路径，不能按空白拆散；
+        /// 整串不存在时才按引号/空白拆分，覆盖「一次拖入多个文件」。
+        /// </summary>
+        public static List<string> ResolvePaths(string raw, Func<string, bool> pathExists)
+        {
+            string whole = NormalizePath(raw);
+            if (whole.Length == 0)
+            {
+                return [];
+            }
+
+            return pathExists(whole) ? [whole] : SplitPaths(raw);
         }
     }
 }

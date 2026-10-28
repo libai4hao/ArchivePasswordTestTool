@@ -36,9 +36,29 @@ public sealed class ArgumentsTests
     }
 
     [Fact]
-    public void SplitPathsKeepsUnquotedPathWithSpacesTogether()
+    public void SplitPathsSplitsUnquotedWhitespaceSeparatedPaths()
     {
-        Assert.Equal(new[] {@"C:\a b.7z"}, Arguments.SplitPaths(@"C:\a b.7z"));
+        // 无空格路径拖入多个文件时，控制台不会加引号，只以空白分隔
+        Assert.Equal(
+            new[] { @"C:\a.7z", @"C:\b.7z" },
+            Arguments.SplitPaths(@"C:\a.7z C:\b.7z"));
+    }
+
+    [Fact]
+    public void ResolvePathsPrefersExistingWholePathWithSpaces()
+    {
+        // 手动输入/拖入单个含空格的路径：整串存在时不能按空白拆散
+        Assert.Equal(
+            new[] { @"C:\a b.7z" },
+            Arguments.ResolvePaths(@"C:\a b.7z", path => path == @"C:\a b.7z"));
+    }
+
+    [Fact]
+    public void ResolvePathsSplitsWhenWholeStringIsNotAPath()
+    {
+        Assert.Equal(
+            new[] { @"C:\a.7z", @"C:\b.7z" },
+            Arguments.ResolvePaths(@"C:\a.7z C:\b.7z", path => path != @"C:\a.7z C:\b.7z"));
     }
 
     [Fact]

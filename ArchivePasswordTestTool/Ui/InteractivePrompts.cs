@@ -11,7 +11,7 @@ namespace ArchivePasswordTestTool
     /// 一次拖入多个文件时按引号与空白拆分为多个路径；
     /// 拖放粘贴的路径在短时空闲后自动验收（无需回车），
     /// 手动输入的路径可按回车强制确认；
-    /// 每个列表输入空行结束（字典与压缩包各一轮）。
+    /// 每个列表以「空输入 + Enter」结束（字典与压缩包各一轮）。
     /// 拖拽产生的首尾引号会被剥离（校验与取值均按剥离后路径判断）；
     /// 校验失败时原位重新询问。
     /// stdin 被重定向（管道/自动化调用）时回退为逐行读取：每个列表仍只读一行，
@@ -205,6 +205,16 @@ namespace ArchivePasswordTestTool
         }
 
         /// <summary>
+        /// 每接受一批路径后重印提示与结束方式：真实拖放后窗口会重新显示标题，
+        /// 若不重复「按 Enter 结束」的说明，用户会以为还在等自己继续拖入。
+        /// </summary>
+        private static void PrintHintAndTitle(string title)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Resources.InteractiveMultiInputHint}[/]");
+            AnsiConsole.Markup(title);
+        }
+
+        /// <summary>
         /// 真实终端的多路径输入：逐键读取（无需回车）。
         /// 拖放/粘贴是一串**快速连续**到达的字符（间隔远小于手动打字）：
         /// 检测到突发输入后，等按键流停止（空闲超阈值）再尝试自动验收；
@@ -216,8 +226,7 @@ namespace ArchivePasswordTestTool
         {
             var accepted = new List<string>();
 
-            AnsiConsole.MarkupLine($"[grey]{Resources.InteractiveMultiInputHint}[/]");
-            AnsiConsole.Markup(title);
+            PrintHintAndTitle(title);
 
             var buffer = new StringBuilder();
             var lastAlerted = string.Empty;
@@ -263,12 +272,20 @@ namespace ArchivePasswordTestTool
                             continue;
                         }
 
-                        var paths = Arguments.SplitPaths(raw);
+                        var paths = Arguments.ResolvePaths(raw, path => Exists(path, allowDirectories));
                         var invalid = paths.Where(path => !Exists(path, allowDirectories)).ToList();
 
                         if (paths.Count > 0 && invalid.Count == 0)
                         {
+                            // 用户对刚输入/拖入的路径按 Enter 确认（且已收下）→ 视为结束本列表，
+                            // 避免「拖入后按 Enter 只是重复添加、还要再按一次空 Enter」的困惑
+                            if (paths.All(path => accepted.Contains(path, StringComparer.OrdinalIgnoreCase)))
+                            {
+                                return accepted;
+                            }
+
                             AddPaths(accepted, paths);
+                            PrintHintAndTitle(title);
                         }
                         else
                         {
@@ -276,9 +293,9 @@ namespace ArchivePasswordTestTool
                                 paths.Count == 0 ? raw : string.Join(", ", invalid),
                                 inputKept: false,
                                 ref lastAlerted);
+                            AnsiConsole.Markup(title);
                         }
 
-                        AnsiConsole.Markup(title);
                         continue;
                     }
 
@@ -333,7 +350,7 @@ namespace ArchivePasswordTestTool
                 }
 
                 string idleRaw = buffer.ToString();
-                var idlePaths = Arguments.SplitPaths(idleRaw);
+                var idlePaths = Arguments.ResolvePaths(idleRaw, path => Exists(path, allowDirectories));
                 var idleInvalid = idlePaths.Where(path => !Exists(path, allowDirectories)).ToList();
 
                 if (idlePaths.Count > 0 && idleInvalid.Count == 0)
@@ -343,7 +360,7 @@ namespace ArchivePasswordTestTool
                     buffer.Clear();
                     burstDetected = false;
                     lastKeyTick = 0;
-                    AnsiConsole.Markup(title);
+                    PrintHintAndTitle(title);
                     continue;
                 }
 
@@ -411,7 +428,7 @@ namespace ArchivePasswordTestTool
                     continue;
                 }
 
-                var paths = Arguments.SplitPaths(line);
+                var paths = Arguments.ResolvePaths(line, path => Exists(path, allowDirectories));
                 if (paths.Count > 0 && paths.All(path => Exists(path, allowDirectories)))
                 {
                     AnsiConsole.MarkupLine($"[dodgerblue1]{Ui.Escape(string.Join(", ", paths))}[/]");

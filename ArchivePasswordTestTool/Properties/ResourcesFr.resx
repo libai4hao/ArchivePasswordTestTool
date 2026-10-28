@@ -326,7 +326,7 @@ Vous pouvez aussi le télécharger manuellement depuis la page des versions.</va
     <value>Mise à jour vers {0}.</value>
   </data>
   <data name="InteractiveMultiInputHint" xml:space="preserve">
-    <value>Déposez ou saisissez plusieurs chemins ; laissez la ligne vide pour terminer.</value>
+    <value>Déposez ou saisissez plusieurs chemins ; appuyez sur Entrée à vide pour terminer cette liste.</value>
   </data>
   <data name="BatchNoArchives" xml:space="preserve">
     <value>Aucune archive traitable trouvée.</value>

@@ -408,6 +408,22 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
     }
 
     /// <summary>
+    /// 交互引导中一次拖入多个字典时，控制台收到的是一行内空格分隔的路径
+    ///（含空格的路径才带引号）。回归：早期解析把整行当成一个路径，
+    /// 于是既找不到文件、又永远进不了下一步。
+    /// </summary>
+    [Fact]
+    public void InteractiveInputAcceptsMultipleDictionariesOnOneLine()
+    {
+        string dictionaries = $"{fx.Dict("Dict7.txt")} {fx.Dict("DictOK.txt")}";
+
+        var (ExitCode, Output) = RunToolWithStdin(dictionaries, fx.Archive("Secret.7z"));
+
+        Assert.Equal(0, ExitCode);
+        Assert.Contains(TestDataFixture.CorrectPassword, Output);
+    }
+
+    /// <summary>
     /// 强制走内嵌 7z.dll（跳过本机已安装的 7-Zip），验证「没装 7-Zip 也能用」这条链路。
     /// <para>
     /// 判据全部语言无关：exit 0 + 命中 ASCII 密码，说明解压出来的 dll 真的能加载并破解；

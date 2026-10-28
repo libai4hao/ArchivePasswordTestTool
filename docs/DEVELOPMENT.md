@@ -57,7 +57,7 @@ Runner 不直接退出进程：单包失败返回带 `Error` 的 `TestOutcome`�
 
 - 批量开始前统一询问一次是否保存；每包写 `<压缩包>[results].txt`，不再逐包询问。
 - 只有「无参数启动且终端可交互」才进入下一轮；带参/管道调用跑完退出。
-- 下一轮沿用上一轮字典与开关，只重新询问压缩包/文件夹；空行结束会话。
+- 下一轮沿用上一轮字典与开关，只重新询问压缩包/文件夹；直接按 Enter 结束会话。
 - `Tests/ArchiveEnumeratorTests`、`ArgumentsTests`、`PasswordDictionaryMultiTests`
   守护上述规则；`UpgradeTests` 用源码断言固定「更新提示先于本轮结束时的阻塞确认」。
 

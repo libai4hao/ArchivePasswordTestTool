@@ -326,7 +326,7 @@
     <value>Обновлено до {0}.</value>
   </data>
   <data name="InteractiveMultiInputHint" xml:space="preserve">
-    <value>Перетащите или введите несколько путей; пустая строка завершает ввод.</value>
+    <value>Перетащите или введите несколько путей; нажмите Enter на пустой строке, чтобы завершить список.</value>
   </data>
   <data name="BatchNoArchives" xml:space="preserve">
     <value>Не найдено архивов для обработки.</value>
