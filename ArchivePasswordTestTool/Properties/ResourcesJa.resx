@@ -325,4 +325,31 @@
   <data name="UpgradeApplied" xml:space="preserve">
     <value>{0} に更新しました。</value>
   </data>
+  <data name="InteractiveMultiInputHint" xml:space="preserve">
+    <value>複数のパスをドロップまたは入力できます。空行で終了します。</value>
+  </data>
+  <data name="BatchNoArchives" xml:space="preserve">
+    <value>処理可能なアーカイブが見つかりません。</value>
+  </data>
+  <data name="BatchPosition" xml:space="preserve">
+    <value>アーカイブ {0}/{1}：{2}</value>
+  </data>
+  <data name="BatchSkippedFiles" xml:space="preserve">
+    <value>{0} 個のファイルをスキップしました：認識不可 {1}、先頭以外の分割 {2}、隠し/システム {3}、アクセス不可 {4}。</value>
+  </data>
+  <data name="BatchNextRoundPrompt" xml:space="preserve">
+    <value>次のラウンドを処理しますか？</value>
+  </data>
+  <data name="BatchSummaryTitle" xml:space="preserve">
+    <value>バッチ結果</value>
+  </data>
+  <data name="BatchSummaryArchive" xml:space="preserve">
+    <value>アーカイブ</value>
+  </data>
+  <data name="BatchSummaryResult" xml:space="preserve">
+    <value>結果</value>
+  </data>
+  <data name="BatchSummaryElapsed" xml:space="preserve">
+    <value>経過時間</value>
+  </data>
 </root>

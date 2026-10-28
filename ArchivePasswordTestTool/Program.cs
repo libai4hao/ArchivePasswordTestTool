@@ -62,11 +62,7 @@ namespace ArchivePasswordTestTool
                 return 0;
             }
 
-            return Instance.Execute(args, () =>
-            {
-                new Runner(args).Run();
-                return 0;
-            });
+            return Instance.Execute(args, () => new BatchRunner(args).Run());
         }
 
         /// <summary>

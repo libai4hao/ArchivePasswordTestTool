@@ -11,11 +11,11 @@ namespace ArchivePasswordTestTool
         /// <summary>7z.dll 路径（空 = 未显式指定，由解析时回填为已安装路径或默认查找）</summary>
         public string SevenZipDllPath { get; init; } = string.Empty;
 
-        /// <summary>密码字典路径</summary>
-        public string DictionaryPath { get; init; } = string.Empty;
+        /// <summary>密码字典路径（按出现顺序；多个字典会合并成一个有序队列）</summary>
+        public IReadOnlyList<string> DictionaryPaths { get; init; } = [];
 
-        /// <summary>压缩包路径</summary>
-        public string ArchivePath { get; init; } = string.Empty;
+        /// <summary>压缩包或文件夹输入（按出现顺序；文件夹会在执行前递归展开）</summary>
+        public IReadOnlyList<string> ArchiveInputs { get; init; } = [];
 
         /// <summary>在线服务地址（-Api 覆盖，默认 OnlineService.DefaultServiceUrl）</summary>
         public string OnlineServiceUrl { get; init; } = OnlineService.DefaultServiceUrl;
@@ -44,40 +44,53 @@ namespace ArchivePasswordTestTool
             // ① 解析 7z.dll：已安装 → CWD\7z.dll → -lib；全部缺失即时报错等待确认退出
             string dllPath = ResolveSevenZipDll(args);
 
-            // ② 取得密码字典与压缩包路径：无参数启动走交互引导（拖入即验收）
-            string dictionaryPath;
-            string archivePath;
-            bool interactive = args.Length == 0;
-            if (interactive)
+            // ② 取得密码字典与压缩包路径：无参数启动走交互引导（可一次拖入多个）
+            IReadOnlyList<string> dictionaryPaths;
+            IReadOnlyList<string> archiveInputs;
+            if (args.Length == 0)
             {
-                (dictionaryPath, archivePath) = InteractivePrompts.AskPaths();
+                (dictionaryPaths, archiveInputs) = InteractivePrompts.AskBatchInputs();
             }
             else
             {
-                if (!Arguments.StartupParametersCheck(args, "D"))
-                {
-                    throw new FileNotFoundException(Resources.DictionaryFileNotFound);
-                }
-
-                dictionaryPath = Arguments.GetParameter(args, "D", "PasswordDictionary.txt").Replace("\"", "");
-
-                if (!Arguments.StartupParametersCheck(args, "F"))
-                {
-                    throw new FileNotFoundException(Resources.ArchiveFileNotFound);
-                }
-
-                archivePath = Arguments.GetParameter(args, "F", "").Replace("\"", "");
+                dictionaryPaths = ParsePathList(args, "D", allowDirectory: false, Resources.DictionaryFileNotFound);
+                archiveInputs = ParsePathList(args, "F", allowDirectory: true, Resources.ArchiveFileNotFound);
             }
 
             return new Options
             {
                 SevenZipDllPath = dllPath,
-                DictionaryPath = dictionaryPath,
-                ArchivePath = archivePath,
+                DictionaryPaths = dictionaryPaths,
+                ArchiveInputs = archiveInputs,
                 OnlineServiceUrl = Arguments.GetParameter(args, "Api", OnlineService.DefaultServiceUrl).Replace("\"", "").Trim().TrimEnd('/'),
                 QueryOnline = !HasFlag(args, "NoQuery"),
                 ReportOnline = !HasFlag(args, "NoReport"),
             };
+        }
+
+        /// <summary>
+        /// 读取可重复出现的路径参数（-D / -F）。任一值缺失或类型不符即按"参数错误"抛出，
+        /// 与单值时代的 E2E 语义保持一致：exit 1，且错误信息不依赖具体路径。
+        /// </summary>
+        private static List<string> ParsePathList(string[] args, string flag, bool allowDirectory, string notFoundMessage)
+        {
+            var paths = Arguments.GetParameters(args, flag)
+                .Select(Arguments.NormalizePath)
+                .Where(path => path.Length > 0)
+                .ToList();
+
+            if (paths.Count == 0 || paths.Any(path => !PathExists(path, allowDirectory)))
+            {
+                throw new FileNotFoundException(notFoundMessage);
+            }
+
+            return paths;
+        }
+
+        /// <summary>字典必须是文件；压缩包既可以是文件，也可以是待展开的文件夹</summary>
+        private static bool PathExists(string path, bool allowDirectory)
+        {
+            return File.Exists(path) || (allowDirectory && Directory.Exists(path));
         }
 
         /// <summary>

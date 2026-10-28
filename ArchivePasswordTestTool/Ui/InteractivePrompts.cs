@@ -8,11 +8,14 @@ namespace ArchivePasswordTestTool
     /// 交互希望保留的键盘/鼠标行为都在真实终端里才可用。
     /// 无参数启动时的 CLI 交互引导：
     /// 依次引导用户输入密码字典与压缩包路径，支持把文件拖入窗口；
+    /// 一次拖入多个文件时按引号与空白拆分为多个路径；
     /// 拖放粘贴的路径在短时空闲后自动验收（无需回车），
     /// 手动输入的路径可按回车强制确认；
+    /// 每个列表输入空行结束（字典与压缩包各一轮）。
     /// 拖拽产生的首尾引号会被剥离（校验与取值均按剥离后路径判断）；
     /// 校验失败时原位重新询问。
-    /// stdin 被重定向（管道/自动化调用）时回退为逐行读取并沿用同一套存在性校验。
+    /// stdin 被重定向（管道/自动化调用）时回退为逐行读取：每个列表仍只读一行，
+    /// 多路径由重复 -D/-F 参数表达（保持既有 E2E 的输入契约）。
     /// 单键 y/n 确认（Confirm）：无需回车，按 Y/N/回车任一键立即生效
     /// </summary>
     internal static class InteractivePrompts
@@ -22,6 +25,9 @@ namespace ArchivePasswordTestTool
 
         /// <summary>判定"快速连续到达"（拖放/粘贴）的最大按键间隔；手动打字通常远大于此值</summary>
         private const int BurstGapMilliseconds = 60;
+
+        /// <summary>等待输入时的轮询间隔，避免忙等</summary>
+        private const int IdlePollMilliseconds = 10;
 
         /// <summary>
         /// 突发输入判定（纯函数，便于测试）：
@@ -44,9 +50,6 @@ namespace ArchivePasswordTestTool
 
             return burstDetected;
         }
-
-        /// <summary>等待输入时的轮询间隔，避免忙等</summary>
-        private const int IdlePollMilliseconds = 10;
 
         /// <summary>
         /// 报错后的退出确认是否必要：输入/输出被重定向（管道/自动化）→ 否；
@@ -90,12 +93,32 @@ namespace ArchivePasswordTestTool
             }
         }
 
-        /// <summary>依次询问密码字典与压缩包路径，均要求文件真实存在</summary>
-        public static (string DictionaryPath, string ArchivePath) AskPaths()
+        /// <summary>依次询问密码字典与压缩包/文件夹，支持一次输入多个路径</summary>
+        public static (List<string> DictionaryPaths, List<string> ArchiveInputs) AskBatchInputs()
         {
-            var dictionary = Ask(Resources.InteractiveDictionaryPrompt);
-            var archive = Ask(Resources.InteractiveArchivePrompt);
-            return (dictionary, archive);
+            var dictionaries = AskPathList(
+                Resources.InteractiveDictionaryPrompt,
+                allowDirectories: false,
+                allowEmpty: false,
+                Resources.DictionaryFileNotFound);
+
+            var archives = AskPathList(
+                Resources.InteractiveArchivePrompt,
+                allowDirectories: true,
+                allowEmpty: false,
+                Resources.ArchiveFileNotFound);
+
+            return (dictionaries, archives);
+        }
+
+        /// <summary>下一轮只重新询问压缩包/文件夹；空行表示结束会话</summary>
+        public static List<string> AskArchiveInputs()
+        {
+            return AskPathList(
+                Resources.InteractiveArchivePrompt,
+                allowDirectories: true,
+                allowEmpty: true,
+                Resources.ArchiveFileNotFound);
         }
 
         /// <summary>单键 y/n 确认：Y=N=立即生效，回车取默认值；仅限交互终端（重定向输入时静默取默认）</summary>
@@ -155,28 +178,47 @@ namespace ArchivePasswordTestTool
             Console.ReadKey(true);
         }
 
-        /// <summary>询问一个已存在文件的路径；交互终端用拖放即验收输入，重定向输入用逐行回退</summary>
-        private static string Ask(string title)
+        private static List<string> AskPathList(
+            string title,
+            bool allowDirectories,
+            bool allowEmpty,
+            string notFoundMessage)
         {
-            if (Console.IsInputRedirected)
-            {
-                return AskByLine(title);
-            }
+            return Console.IsInputRedirected
+                ? AskListByLine(title, allowDirectories, allowEmpty, notFoundMessage)
+                : AskListByKeys(title, allowDirectories, allowEmpty);
+        }
 
-            return AskByKeys(title);
+        /// <summary>校验路径存在性：字典只接受文件，压缩包输入还接受文件夹</summary>
+        private static bool Exists(string path, bool allowDirectories)
+        {
+            return File.Exists(path) || (allowDirectories && Directory.Exists(path));
+        }
+
+        private static void AddPaths(List<string> accepted, IEnumerable<string> paths)
+        {
+            foreach (string path in paths)
+            {
+                accepted.Add(path);
+                AnsiConsole.MarkupLine($"[dodgerblue1]{Ui.Escape(path)}[/]");
+            }
         }
 
         /// <summary>
-        /// 真实终端的路径输入：逐键读取（无需回车）。
+        /// 真实终端的多路径输入：逐键读取（无需回车）。
         /// 拖放/粘贴是一串**快速连续**到达的字符（间隔远小于手动打字）：
         /// 检测到突发输入后，等按键流停止（空闲超阈值）再尝试自动验收；
-        /// 文件存在 → 立即接受（拖入即开始）；不存在 → 回到输入状态并提示一次。
+        /// 全部路径存在 → 立即追加（拖入即开始），并继续等待下一次输入；
         /// 手动打字不触发自动验收（避免打到一半误报错），回车才验收。
-        /// 回车 → 强制验收（不存在时换行报错并重印提示）；退格 → 删除末字符。
+        /// 回车且输入为空 → 结束本列表（至少输入一个路径，除非 allowEmpty）。
         /// </summary>
-        private static string AskByKeys(string title)
+        private static List<string> AskListByKeys(string title, bool allowDirectories, bool allowEmpty)
         {
+            var accepted = new List<string>();
+
+            AnsiConsole.MarkupLine($"[grey]{Resources.InteractiveMultiInputHint}[/]");
             AnsiConsole.Markup(title);
+
             var buffer = new StringBuilder();
             var lastAlerted = string.Empty;
             var focusRestored = false;
@@ -203,25 +245,40 @@ namespace ArchivePasswordTestTool
 
                     if (key.Key == ConsoleKey.Enter)
                     {
-                        var candidate = Normalize(buffer.ToString());
-                        if (File.Exists(candidate))
-                        {
-                            Console.WriteLine();
-                            return candidate;
-                        }
-
-                        Console.WriteLine();
-
-                        // 空输入直接重印提示，不报错
-                        if (candidate.Length > 0)
-                        {
-                            AlertInvalid(candidate, inputKept: false, ref lastAlerted);
-                        }
-
-                        AnsiConsole.Markup(title);
+                        string raw = buffer.ToString();
                         buffer.Clear();
                         burstDetected = false;
                         lastKeyTick = 0;
+                        Console.WriteLine();
+
+                        if (raw.Trim().Length == 0)
+                        {
+                            if (accepted.Count > 0 || allowEmpty)
+                            {
+                                return accepted;
+                            }
+
+                            // 字典/首次压缩包至少要有一个；空输入不报错，只重新提示
+                            AnsiConsole.Markup(title);
+                            continue;
+                        }
+
+                        var paths = Arguments.SplitPaths(raw);
+                        var invalid = paths.Where(path => !Exists(path, allowDirectories)).ToList();
+
+                        if (paths.Count > 0 && invalid.Count == 0)
+                        {
+                            AddPaths(accepted, paths);
+                        }
+                        else
+                        {
+                            AlertInvalid(
+                                paths.Count == 0 ? raw : string.Join(", ", invalid),
+                                inputKept: false,
+                                ref lastAlerted);
+                        }
+
+                        AnsiConsole.Markup(title);
                         continue;
                     }
 
@@ -232,6 +289,7 @@ namespace ArchivePasswordTestTool
                             buffer.Length -= 1;
                             Console.Write("\b \b");
                         }
+
                         lastKeyTick = 0;
                         burstDetected = false;
                         continue;
@@ -274,16 +332,27 @@ namespace ArchivePasswordTestTool
                     continue;
                 }
 
-                var idleCandidate = Normalize(buffer.ToString());
-                if (File.Exists(idleCandidate))
+                string idleRaw = buffer.ToString();
+                var idlePaths = Arguments.SplitPaths(idleRaw);
+                var idleInvalid = idlePaths.Where(path => !Exists(path, allowDirectories)).ToList();
+
+                if (idlePaths.Count > 0 && idleInvalid.Count == 0)
                 {
                     Console.WriteLine();
-                    return idleCandidate;
+                    AddPaths(accepted, idlePaths);
+                    buffer.Clear();
+                    burstDetected = false;
+                    lastKeyTick = 0;
+                    AnsiConsole.Markup(title);
+                    continue;
                 }
 
-                // 拖放内容不是有效文件：换行提示并原位重印，输入内容保留供继续编辑
+                // 拖放内容不是有效路径：换行提示并原位重印，输入内容保留供继续编辑
                 Console.WriteLine();
-                AlertInvalid(idleCandidate, inputKept: true, ref lastAlerted);
+                AlertInvalid(
+                    idlePaths.Count == 0 ? idleRaw : string.Join(", ", idleInvalid),
+                    inputKept: true,
+                    ref lastAlerted);
                 AnsiConsole.Markup(title);
 
                 // 保留的缓冲内容必须重新回显，否则屏幕显示与实际输入不一致
@@ -292,8 +361,6 @@ namespace ArchivePasswordTestTool
                 lastKeyTick = 0;
             }
         }
-
-        private static string Normalize(string raw) => raw.Replace("\"", "").Trim();
 
         /// <summary>
         /// 输出一次无效路径提示（同一路径只提示一次）。
@@ -318,28 +385,44 @@ namespace ArchivePasswordTestTool
         }
 
         /// <summary>
-        /// 重定向输入回退：打印提示后从 stdin 逐行读取；
-        /// 校验失败重新询问；EOF 时抛错交由统一的缺文件错误路径处理
+        /// 重定向输入回退：打印提示后从 stdin 读取**一行**（保持既有自动化契约），
+        /// 该行可包含多个带引号的路径；校验失败重新询问；
+        /// EOF 时抛错交由统一的缺文件错误路径处理
         /// </summary>
-        private static string AskByLine(string title)
+        private static List<string> AskListByLine(
+            string title,
+            bool allowDirectories,
+            bool allowEmpty,
+            string notFoundMessage)
         {
             AnsiConsole.Markup(title);
 
             while (Console.In.ReadLine() is { } line)
             {
-                var path = line.Replace("\"", "").Trim();
-
-                if (File.Exists(path))
+                if (line.Trim().Length == 0)
                 {
-                    AnsiConsole.MarkupLine($"[dodgerblue1]{Ui.Escape(path)}[/]");
-                    return path;
+                    if (allowEmpty)
+                    {
+                        return [];
+                    }
+
+                    AnsiConsole.MarkupLine($"[red]{Resources.InteractiveFileNotFound}[/]");
+                    AnsiConsole.Markup(title);
+                    continue;
+                }
+
+                var paths = Arguments.SplitPaths(line);
+                if (paths.Count > 0 && paths.All(path => Exists(path, allowDirectories)))
+                {
+                    AnsiConsole.MarkupLine($"[dodgerblue1]{Ui.Escape(string.Join(", ", paths))}[/]");
+                    return paths;
                 }
 
                 AnsiConsole.MarkupLine($"[red]{Resources.InteractiveFileNotFound}[/]");
                 AnsiConsole.Markup(title);
             }
 
-            throw new FileNotFoundException(Resources.ArchiveFileNotFound);
+            throw new FileNotFoundException(notFoundMessage);
         }
     }
 }

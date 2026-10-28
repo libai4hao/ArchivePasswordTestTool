@@ -27,10 +27,14 @@ public sealed class TestDataFixture
 
     public TestDataFixture()
     {
+        // 查找顺序：环境变量 → 仓库内解包的完整版（本地/离线验证用）→ 系统安装
         SevenZipExe = FindFirstExisting(
+            Environment.GetEnvironmentVariable("APTT_SEVEN_ZIP_EXE"),
+            Path.Combine(TestPaths.RepoRoot, "tools", "7zip", "full", "7z.exe"),
             @"C:\Program Files\7-Zip\7z.exe",
             @"C:\Program Files (x86)\7-Zip\7z.exe")
-            ?? throw new InvalidOperationException("生成测试样本需要 7z.exe，请先安装 7-Zip");
+            ?? throw new InvalidOperationException(
+                "生成测试样本需要 7z.exe：请安装 7-Zip，或用 APTT_SEVEN_ZIP_EXE 指定路径");
 
         WinRarExe = FindFirstExisting(
             @"C:\Program Files\WinRAR\Rar.exe",
@@ -145,10 +149,66 @@ public sealed class TestDataFixture
             p => RunSevenZip($"a -y \"{StripVolumeSuffix(p)}\" \"{payload}\" -p{CorrectPassword} -v8k"));
 
         // SFX 自解压（标准加密 / header 加密）
-        CreateIfMissing("SecretSfx.exe",
-            p => RunSevenZip($"a -y -sfx \"{p}\" \"{payload}\" -p{CorrectPassword}"));
-        CreateIfMissing("SecretSfxHeader.exe",
-            p => RunSevenZip($"a -y -sfx -mhe=on \"{p}\" \"{payload}\" -p{CorrectPassword}"));
+        CreateSfxIfMissing("SecretSfx.exe", headerEncrypted: false);
+        CreateSfxIfMissing("SecretSfxHeader.exe", headerEncrypted: true);
+    }
+
+    /// <summary>
+    /// 生成 SFX 样本。完整版 7-Zip 用 <c>-sfx</c>；精简版 7za（无 7z.sfx 模块）下
+    /// 退化为「PE stub + 7z 数据」合成——被测程序只按签名定位压缩数据、不执行 stub，
+    /// 因此两条路径覆盖的是同一个检测/打开逻辑。
+    /// </summary>
+    private void CreateSfxIfMissing(string name, bool headerEncrypted)
+    {
+        string path = Archive(name);
+        if (File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            string module = headerEncrypted ? "-sfx -mhe=on" : "-sfx";
+            RunSevenZip($"a -y {module} \"{path}\" \"{PayloadPath}\" -p{CorrectPassword}");
+        }
+        catch (InvalidOperationException)
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            string raw = path + ".7z";
+            try
+            {
+                string module = headerEncrypted ? "-mhe=on" : string.Empty;
+                RunSevenZip($"a -y {module} \"{raw}\" \"{PayloadPath}\" -p{CorrectPassword}");
+                WriteSfxStub(path, raw);
+            }
+            finally
+            {
+                if (File.Exists(raw))
+                {
+                    File.Delete(raw);
+                }
+            }
+        }
+    }
+
+    private static void WriteSfxStub(string target, string archivePath)
+    {
+        string notepad = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "notepad.exe");
+
+        // 任意 PE 都能作 stub；找不到 notepad 时用一个最小 MZ 头（检测只要求 MZ 起点）
+        byte[] stub = File.Exists(notepad)
+            ? File.ReadAllBytes(notepad)
+            : [0x4D, 0x5A, 0, 0, 0, 0, 0, 0];
+
+        using var output = File.Create(target);
+        output.Write(stub);
+        using var archive = File.OpenRead(archivePath);
+        archive.CopyTo(output);
     }
 
     private void CreateNonArchiveExeIfMissing()
@@ -248,6 +308,6 @@ public sealed class TestDataFixture
         }
     }
 
-    private static string? FindFirstExisting(params string[] paths) =>
-        paths.FirstOrDefault(File.Exists);
+    private static string? FindFirstExisting(params string?[] paths) =>
+        paths.FirstOrDefault(path => path is not null && File.Exists(path));
 }

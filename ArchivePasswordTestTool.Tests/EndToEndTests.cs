@@ -460,6 +460,55 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
         Assert.DoesNotContain(TestDataFixture.CorrectPassword, Output);
     }
 
+    /// <summary>
+    /// 迭代 01：一次处理多个字典与文件夹内多个压缩包。
+    /// 判据与界面语言无关：exit 0，且每个包的结果面板各出现一次正确密码。
+    /// </summary>
+    [Fact]
+    public void ProcessesMultipleArchivesInFolderWithMultipleDictionaries()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"ApttBatch{Guid.NewGuid():N}");
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "nested"));
+            File.Copy(fx.Archive("Secret.7z"), Path.Combine(dir, "a.7z"));
+            File.Copy(fx.Archive("SecretZip.zip"), Path.Combine(dir, "nested", "b.zip"));
+
+            var (ExitCode, Output) = RunTool(
+                $"-D \"{fx.Dict("Dict7.txt")}\" -D \"{fx.Dict("DictOK.txt")}\" -F \"{dir}\"");
+
+            Assert.Equal(0, ExitCode);
+            Assert.True(
+                Output.Split(TestDataFixture.CorrectPassword).Length - 1 >= 2,
+                "两个压缩包都应报告找到密码（每个包的结果面板各出现一次）");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 只给分卷的后续卷（.002）：无法拼出完整流，展开后没有可处理压缩包 → exit 1。
+    /// </summary>
+    [Fact]
+    public void ExplicitNonFirstVolumeIsSkippedAndBatchFails()
+    {
+        string second = fx.Archive("SecretSplit.7z.002");
+        if (!File.Exists(second))
+        {
+            output.WriteLine("跳过：样本未生成 SecretSplit.7z.002");
+            return;
+        }
+
+        var (ExitCode, Output) = RunTool(
+            $"-D \"{fx.Dict("DictOK.txt")}\" -F \"{second}\"");
+
+        Assert.Equal(1, ExitCode);
+        Assert.DoesNotContain(TestDataFixture.CorrectPassword, Output);
+    }
+
     /// <summary>无参数启动主程序并经 stdin 依次喳入引导答案，返回退出码与全量输出</summary>
     private (int ExitCode, string Output) RunToolWithStdin(params string[] lines)
     {

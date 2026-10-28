@@ -75,26 +75,27 @@ public class ResultsWriterTests
     }
 
     /// <summary>
-    /// 保存询问的判据必须是「归档是否已成功探测」，不是「是否加密」。
+    /// 结果落盘的判据必须是「归档是否已成功探测」，不是「是否加密」。
     /// 用加密与否守卫会让未加密包完全不留报告（实际被用户撞到的回归）。
+    /// 结果写出已从 Runner 移到 BatchRunner（单包执行器只返回 TestOutcome）。
     /// </summary>
     [Fact]
     public void SavePromptIsGatedByInspectionNotEncryption()
     {
-        string runnerPath = Path.Combine(
-            TestPaths.RepoRoot, "ArchivePasswordTestTool", "Services", "Runner.cs");
-        string source = File.ReadAllText(runnerPath);
+        string batchRunnerPath = Path.Combine(
+            TestPaths.RepoRoot, "ArchivePasswordTestTool", "Services", "BatchRunner.cs");
+        string source = File.ReadAllText(batchRunnerPath);
 
-        int callIndex = source.IndexOf("ResultsWriter.WriteIfRequested(", StringComparison.Ordinal);
-        Assert.True(callIndex >= 0, "Runner.cs 中未找到 ResultsWriter.WriteIfRequested 调用");
+        int callIndex = source.IndexOf("ResultsWriter.Write(", StringComparison.Ordinal);
+        Assert.True(callIndex >= 0, "BatchRunner.cs 中未找到 ResultsWriter.Write 调用");
 
         // 取调用前最近的 if 守卫行
         int guardStart = source.LastIndexOf("if (", callIndex, StringComparison.Ordinal);
-        Assert.True(guardStart >= 0, "未找到 WriteIfRequested 的守卫条件");
+        Assert.True(guardStart >= 0, "未找到 ResultsWriter.Write 的守卫条件");
 
         string guard = source[guardStart..callIndex];
 
-        Assert.Contains("archiveInspected", guard, StringComparison.Ordinal);
-        Assert.DoesNotContain("archiveEncrypted", guard, StringComparison.Ordinal);
+        Assert.Contains("outcome.Inspected", guard, StringComparison.Ordinal);
+        Assert.DoesNotContain("outcome.Encrypted", guard, StringComparison.Ordinal);
     }
 }

@@ -325,4 +325,31 @@ You can also download it manually from the releases page.</value>
   <data name="UpgradeApplied" xml:space="preserve">
     <value>Updated to {0}.</value>
   </data>
+  <data name="InteractiveMultiInputHint" xml:space="preserve">
+    <value>Drop or enter paths; press Enter on an empty line to finish.</value>
+  </data>
+  <data name="BatchNoArchives" xml:space="preserve">
+    <value>No processable archives found.</value>
+  </data>
+  <data name="BatchPosition" xml:space="preserve">
+    <value>Archive {0}/{1}: {2}</value>
+  </data>
+  <data name="BatchSkippedFiles" xml:space="preserve">
+    <value>Skipped {0} file(s): unrecognized {1}, non-first volume {2}, hidden/system {3}, inaccessible {4}.</value>
+  </data>
+  <data name="BatchNextRoundPrompt" xml:space="preserve">
+    <value>Process another round?</value>
+  </data>
+  <data name="BatchSummaryTitle" xml:space="preserve">
+    <value>Batch results</value>
+  </data>
+  <data name="BatchSummaryArchive" xml:space="preserve">
+    <value>Archive</value>
+  </data>
+  <data name="BatchSummaryResult" xml:space="preserve">
+    <value>Result</value>
+  </data>
+  <data name="BatchSummaryElapsed" xml:space="preserve">
+    <value>Elapsed</value>
+  </data>
 </root>

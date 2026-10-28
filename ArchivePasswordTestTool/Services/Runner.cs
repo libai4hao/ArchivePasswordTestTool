@@ -6,37 +6,47 @@ using Spectre.Console;
 
 namespace ArchivePasswordTestTool
 {
+    /// <summary>单个压缩包的测试任务：归档路径 + 可复用的字典 + 本轮选项</summary>
+    internal sealed record TestJob(string ArchivePath, PasswordDictionary Dictionary, Options Options);
+
     /// <summary>
-    /// 命令行测试主流程：头部展示 → 解析参数（7z 环境优先，再取路径）→
-    /// 初始化 7z → 打开归档 → 选择执行模式（多进程 / 进程内并行）→ 输出结果。
-    /// 异常与退出码语义（E2E 锁定）：缺参数/格式不识别 → exit 1；
-    /// 正常流程（含未找到密码）→ exit 0。
+    /// 单个压缩包的测试结果。批量编排（BatchRunner）据此决定汇总、结果落盘与退出码。
+    /// Error 非空表示该包未能完成（格式不识别、文件损坏、7z.dll 故障等），其余字段无意义。
     /// </summary>
-    internal sealed class Runner(string[] args)
+    internal sealed record TestOutcome(
+        string ArchivePath,
+        bool Inspected,
+        bool Encrypted,
+        string? Password,
+        long Tested,
+        TimeSpan Elapsed,
+        string ArchiveHash,
+        string? Error)
+    {
+        public static TestOutcome Failed(string archivePath, string error) =>
+            new(archivePath, false, true, null, 0, TimeSpan.Zero, string.Empty, error);
+    }
+
+    /// <summary>
+    /// 单个压缩包的测试主流程：打开归档 → 在线查询 → 字典重置 → 执行（多进程/进程内并行）
+    /// → 输出结果 → 回传。批量循环、参数解析、结果保存与下一轮交互由 BatchRunner 负责。
+    /// 异常与退出码语义由调用方决定：单包失败返回带 Error 的 TestOutcome，不再直接退出进程。
+    /// </summary>
+    internal sealed class Runner(TestJob job)
     {
         private static readonly SHA256 HashAlgorithm = SHA256.Create();
+
+        private readonly Options options = job.Options;
+        private readonly PasswordDictionary dictionary = job.Dictionary;
+        private readonly string archivePath = job.ArchivePath;
         private readonly Stopwatch stopwatch = new();
         private readonly Planner planner = new();
-
-        private string archivePath = string.Empty;
-        private string dictionaryPath = string.Empty;
 
         // 归档哈希：Base64 版用于结果文件，Hex 版作为在线服务的归档标识。
         // 均为惰性计算（见 ComputeArchiveHash）——离线且不保存结果时一次都不读全文件
         private string archiveHash = string.Empty;
         private string archiveHashHex = string.Empty;
         private bool hashComputed;
-
-        /// <summary>
-        /// 归档是否已成功探测（决定是否询问保存报告）。
-        /// <para>
-        /// 不能用「是否加密」守卫：未加密的包同样值得留一份报告——里面有哈希、用时，
-        /// 以及「未加密」这个结论，是「我检查过这个包」的凭证。
-        /// 真正不该问的是探测就失败的路径（格式不识别、缺参数、7z 初始化失败），
-        /// 那些连归档信息都拿不到。
-        /// </para>
-        /// </summary>
-        private bool archiveInspected;
 
         /// <summary>归档是否加密（决定报告里的密码行写密码 / 未找到 / 未加密）</summary>
         private bool archiveEncrypted = true;
@@ -45,166 +55,149 @@ namespace ArchivePasswordTestTool
         private long testedCount;
         private string? foundPassword;
 
-        public void Run()
-        {
-            Ui.RunInAlternateScreenWhenSupported(RunCore);
-        }
-
-        private void RunCore()
+        /// <summary>
+        /// 执行单个压缩包。<paramref name="saveResults"/> 为 true 时顺带计算归档哈希，
+        /// 供调用方写出结果文件；为 false 且无需在线交互时不会整文件读一遍。
+        /// </summary>
+        public TestOutcome Run(bool saveResults)
         {
             try
             {
-                // 标题最先设：后面读字典、算哈希都可能要几秒到几十秒，
-                // 那段时间用户看到的应该已经是本程序，而不是 shell 遗留的标题
-                ConsoleTitle.Initialize();
-
-                // 启动流程微调：头部最先展示，其后依次是 7z 环境解析、
-                // 路径引导/参数校验、初始化与分析
-                if (AnsiConsole.Profile.Out.IsTerminal)
-                {
-                    AnsiConsole.Clear();
-                }
-                Ui.WriteHeader();
-
-                // 上一次启动完成了自我替换：明确告知，避免用户误以为「版本号变了但没更新」
-                if (PendingUpdate.JustUpdated)
-                {
-                    Ui.WriteWarning(string.Format(Resources.UpgradeApplied, Program.VersionText));
-                }
-
-                // 更新检查在后台发起：网络耗时与后续引导、测密重叠，不阻塞首屏
-                Upgrade.StartBackgroundCheck();
-
-                var options = Options.Parse(args);
-                archivePath = options.ArchivePath;
-                dictionaryPath = options.DictionaryPath;
-
-                SevenZip.Initialize(options.SevenZipDllPath);
-
-                // 在线服务只在真正配置了地址时才可能用到哈希；
-                // 占位地址（未部署服务）下绝不为此读一遍整个压缩包
-                bool onlineEnabled = Sync.IsConfigured(options.OnlineServiceUrl);
-
-                using var archiveContext = new ArchiveContext(options.SevenZipDllPath, archivePath, password: null);
-                var archiveInfo = archiveContext.Info;
-
-                // 归档已打开、信息已知：后续无论加密与否都要给用户留一份报告
-                archiveInspected = true;
-
-                if (!archiveInfo.IsEncrypted)
-                {
-                    archiveEncrypted = false;
-                    AnsiConsole.WriteLine(string.Format(Resources.ArchiveNotEncrypted, archivePath));
-                    return;
-                }
-
-                // 在线共享（默认开启）：按哈希向服务器查询共享密码（一个哈希对应一个密码），
-                // 存在则置于队列最前优先测试；失败只提示不阻断。
-                // 工作进程不做网络操作，只有主进程在此请求
-                string? onlinePassword = null;
-                if (options.QueryOnline)
-                {
-                    if (onlineEnabled)
-                    {
-                        ComputeArchiveHash();
-                    }
-
-                    onlinePassword = Sync.RequestOnlinePassword(options.OnlineServiceUrl, archiveHashHex);
-                }
-
-                using var dictionary = new PasswordDictionary(dictionaryPath, onlinePassword: onlinePassword);
-                dictionaryCount = dictionary.Count;
-
-                // 非 UTF-8 字典（典型：简中 Windows 记事本另存的 ANSI/GBK）照旧能正常破解，
-                // 但要让用户知道密码文本是按哪种编码解读的，否则看到"怪字符"会以为读错了
-                if (dictionary.Encoding.CodePage != Encoding.UTF8.CodePage)
-                {
-                    Ui.WriteWarning(string.Format(
-                        Resources.DictionaryEncodingDetected, dictionary.Encoding.WebName));
-                }
-
-                var (Mode, WorkerCount, ThreadParallelism, DisplayParallelism) = planner.Plan(options.SevenZipDllPath, archiveInfo, archivePath, dictionaryCount);
-                Ui.WriteArchiveInfo(
-                    archivePath,
-                    hashComputed ? archiveHash : null,
-                    archiveInfo.Format,
-                    archiveInfo.FileCount,
-                    archiveInfo.IsHeaderEncryption,
-                    archiveInfo.SupportsQuickTest,
-                    dictionaryPath,
-                    dictionaryCount,
-                    DisplayParallelism);
-
-                if (Mode == ExecutionMode.MultiProcess)
-                {
-                    RunMultiProcess(options.SevenZipDllPath, dictionary, WorkerCount);
-                }
-                else
-                {
-                    RunThreaded(options.SevenZipDllPath, archiveInfo, dictionary, ThreadParallelism);
-                }
-
-                Ui.WriteOutcome(
-                    !string.IsNullOrEmpty(foundPassword),
-                    archivePath,
-                    dictionaryPath,
-                    foundPassword,
-                    stopwatch.Elapsed,
-                    Interlocked.Read(ref testedCount));
-
-                if (string.IsNullOrEmpty(foundPassword))
-                {
-                    ConsoleTitle.ShowNotFound();
-                }
-                else
-                {
-                    ConsoleTitle.ShowFound();
-                }
-
-                // 密码回传（默认开启）：找到即把 哈希+密码 POST 给服务端供他人共享；失败只提示
-                if (!string.IsNullOrEmpty(foundPassword) && options.ReportOnline && onlineEnabled)
-                {
-                    ComputeArchiveHash();
-                    Sync.ReportFoundPassword(options.OnlineServiceUrl, archiveHashHex, foundPassword);
-                }
+                return RunCore(saveResults);
             }
             catch (Exception ex)
             {
-                // FileNotFoundException 与其它异常处理完全相同（打印 + exit 1），
-                // 原先分成两个 catch 块只是重复
-                Ui.WriteError(ex.Message);
-
-                // Environment.Exit 不跑 finally，标题只能在这里自己还
-                ConsoleTitle.Restore();
-                Environment.Exit(1);
+                // 单包失败不终止进程：由 BatchRunner 记录、继续处理其余压缩包并决定最终退出码
+                return TestOutcome.Failed(archivePath, ex.Message);
             }
             finally
             {
-                // 更新提示先于保存结果确认消费：后者含两个阻塞式确认（是否保存、是否打开报告），
-                // 用户若卡在那里（或直接关窗口）就再也看不到更新提示了。
-                // 两者不会抢屏幕：进度条已 AutoClear，结果面板也已输出完毕。
-                Upgrade.CompleteBackgroundCheck();
+                planner.DisposeAll();
+            }
+        }
 
-                if (archiveInspected && !string.IsNullOrEmpty(archivePath) && !string.IsNullOrEmpty(dictionaryPath))
+        private TestOutcome RunCore(bool saveResults)
+        {
+            // 在线服务只在真正配置了地址时才可能用到哈希；
+            // 占位地址（未部署服务）下绝不为此读一遍整个压缩包
+            bool onlineEnabled = Sync.IsConfigured(options.OnlineServiceUrl);
+
+            using var archiveContext = new ArchiveContext(options.SevenZipDllPath, archivePath, password: null);
+            var archiveInfo = archiveContext.Info;
+
+            // 归档已打开、信息已知：后续无论加密与否都要给用户留一份报告
+            if (!archiveInfo.IsEncrypted)
+            {
+                archiveEncrypted = false;
+                AnsiConsole.WriteLine(string.Format(Resources.ArchiveNotEncrypted, archivePath));
+
+                if (saveResults)
                 {
-                    // 哈希按需计算：用户确认保存后才读文件（见 WriteIfRequested 内部调用顺序）
-                    ResultsWriter.WriteIfRequested(
-                        archivePath,
-                        dictionaryPath,
-                        foundPassword,
-                        archiveEncrypted,
-                        stopwatch.Elapsed,
-                        () =>
-                        {
-                            ComputeArchiveHash();
-                            return archiveHash;
-                        });
+                    ComputeArchiveHash();
                 }
 
-                // 放在 finally 的最后：上面的保存/打开报告确认可能让用户停留很久，
-                // 那期间标题应该还是结果（或进度），不该提前变回壳层标题
-                ConsoleTitle.Restore();
+                return BuildOutcome(inspected: true);
             }
+
+            // 在线共享（默认开启）：按哈希向服务器查询共享密码（一个哈希对应一个密码），
+            // 存在则置于队列最前优先测试；失败只提示不阻断。
+            // 工作进程不做网络操作，只有主进程在此请求
+            string? onlinePassword = null;
+            if (options.QueryOnline)
+            {
+                if (onlineEnabled)
+                {
+                    ComputeArchiveHash();
+                }
+
+                onlinePassword = Sync.RequestOnlinePassword(options.OnlineServiceUrl, archiveHashHex);
+            }
+
+            // 每个压缩包重新起跑同一批密码（含本包的在线密码）
+            dictionary.Reset(onlinePassword);
+            dictionaryCount = dictionary.Count;
+
+            // 非 UTF-8 字典（典型：简中 Windows 记事本另存的 ANSI/GBK）照旧能正常破解，
+            // 但要让用户知道密码文本是按哪种编码解读的，否则看到"怪字符"会以为读错了
+            foreach (var source in dictionary.Sources)
+            {
+                if (source.Encoding.CodePage != Encoding.UTF8.CodePage)
+                {
+                    string message = string.Format(Resources.DictionaryEncodingDetected, source.Encoding.WebName);
+                    if (dictionary.Sources.Count > 1)
+                    {
+                        message += $" [{source.Path}]";
+                    }
+
+                    Ui.WriteWarning(message);
+                }
+            }
+
+            var (Mode, WorkerCount, ThreadParallelism, DisplayParallelism) = planner.Plan(options.SevenZipDllPath, archiveInfo, archivePath, dictionaryCount);
+            Ui.WriteArchiveInfo(
+                archivePath,
+                hashComputed ? archiveHash : null,
+                archiveInfo.Format,
+                archiveInfo.FileCount,
+                archiveInfo.IsHeaderEncryption,
+                archiveInfo.SupportsQuickTest,
+                dictionary.DisplayPath,
+                dictionaryCount,
+                DisplayParallelism);
+
+            if (Mode == ExecutionMode.MultiProcess)
+            {
+                RunMultiProcess(options.SevenZipDllPath, dictionary, WorkerCount);
+            }
+            else
+            {
+                RunThreaded(options.SevenZipDllPath, archiveInfo, dictionary, ThreadParallelism);
+            }
+
+            Ui.WriteOutcome(
+                !string.IsNullOrEmpty(foundPassword),
+                archivePath,
+                dictionary.DisplayPath,
+                foundPassword,
+                stopwatch.Elapsed,
+                Interlocked.Read(ref testedCount));
+
+            if (string.IsNullOrEmpty(foundPassword))
+            {
+                ConsoleTitle.ShowNotFound();
+            }
+            else
+            {
+                ConsoleTitle.ShowFound();
+            }
+
+            // 密码回传（默认开启）：找到即把 哈希+密码 POST 给服务端供他人共享；失败只提示
+            if (!string.IsNullOrEmpty(foundPassword) && options.ReportOnline && onlineEnabled)
+            {
+                ComputeArchiveHash();
+                Sync.ReportFoundPassword(options.OnlineServiceUrl, archiveHashHex, foundPassword);
+            }
+
+            // 结果文件需要 Base64 哈希；放在最后，只有确实要保存时才多读一遍文件
+            if (saveResults)
+            {
+                ComputeArchiveHash();
+            }
+
+            return BuildOutcome(inspected: true);
+        }
+
+        private TestOutcome BuildOutcome(bool inspected)
+        {
+            return new TestOutcome(
+                archivePath,
+                inspected,
+                archiveEncrypted,
+                foundPassword,
+                Interlocked.Read(ref testedCount),
+                stopwatch.Elapsed,
+                archiveHash,
+                Error: null);
         }
 
         /// <summary>

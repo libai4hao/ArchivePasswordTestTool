@@ -3,11 +3,17 @@ using System.Text;
 namespace ArchivePasswordTestTool
 {
     /// <summary>
-    /// 线程安全、单趟读取、构造期去重的密码字典。
+    /// 单个字典文件的探测结果。多字典模式下每份文件独立探测编码，
+    /// 避免 GBK 与 UTF-8 混用时整份字典被按错误编码解读。
+    /// </summary>
+    public sealed record DictionarySource(string Path, Encoding Encoding, int AddedPasswordCount);
+
+    /// <summary>
+    /// 线程安全、单趟读取、构造期去重的密码字典（支持多个文件）。
     /// 设计要点：
-    /// - 一趟顺序扫描完成"读取 + 去重 + 计数"：唯一密码按首次出现顺序存入列表，
-    ///   Count = 唯一密码数；不再为建集合先扫一遍、再用流读第二遍（省一次全文件 I/O）；
-    /// - 消费按游标推进，取走即把槽位置 null：已测试的密码可被 GC 回收，内存随进度递减；
+    /// - 多个文件按传入顺序依次读取：前一个文件的密码先进入队列，全局去重；
+    /// - 消费按游标推进：Reset 可把队列恢复到起点，供批量处理多个压缩包时复用；
+    ///   因此密码集合在整个批量期间常驻内存（多包复用的必要代价）；
     /// - 文件序服务：重复行仅在首次出现处被服务一次；
     /// - 多线程安全：Pop 在同一把锁内推进游标。
     /// Count 供 Parallel.For(0, Count) 迭代计划使用：迭代数与实际可服务数精确相等。
@@ -17,51 +23,116 @@ namespace ArchivePasswordTestTool
     {
         private readonly Lock SyncRoot = new();
 
-        // 去重后的密码（文件序），消费时按 Cursor 推进并把已服务槽位置 null
-        private readonly List<string?> Pending;
+        // 去重后的密码（文件序），整个生命周期保留，供 Reset 复用
+        private readonly List<string> Passwords;
+
+        // 当前一轮的待测序列（在线密码可能插在最前），消费时按 Cursor 推进
+        private List<string?> Pending = [];
         private int Cursor;
 
-        /// <summary>唯一密码数（构造期顺序扫描去重后的行数，含在线密码并入的新密码）</summary>
-        public int Count { get; init; }
+        /// <summary>当前一轮的唯一密码数（含在线密码），Reset 后更新</summary>
+        public int Count { get; private set; }
 
-        public string DictionaryPath { get; init; }
+        /// <summary>字典文件路径（按传入顺序）</summary>
+        public IReadOnlyList<string> Paths { get; }
 
-        /// <summary>实际使用的字典编码（探测结果）。非 UTF-8 时界面会提示，避免用户对乱码密码困惑</summary>
-        public Encoding Encoding { get; init; } = Encoding.UTF8;
+        /// <summary>展示用文本：单字典为原路径，多字典用 " + " 连接</summary>
+        public string DisplayPath => string.Join(" + ", Paths);
+
+        /// <summary>每份字典文件的编码探测结果与新增密码数</summary>
+        public IReadOnlyList<DictionarySource> Sources { get; }
+
+        /// <summary>首个字典的编码（保留给单字典调用方；多字典请查看 <see cref="Sources"/>）</summary>
+        public Encoding Encoding => Sources[0].Encoding;
+
+        /// <summary>单个字典（保留旧调用方式）</summary>
+        public PasswordDictionary(string dictionaryPath)
+            : this([dictionaryPath])
+        {
+        }
+
+        /// <summary>单个字典 + 在线密码（保留旧调用方式）</summary>
+        public PasswordDictionary(string dictionaryPath, string? onlinePassword)
+            : this([dictionaryPath], onlinePassword)
+        {
+        }
+
+        /// <summary>多个字典，按传入顺序合并去重</summary>
+        public PasswordDictionary(IReadOnlyList<string> dictionaryPaths)
+            : this(dictionaryPaths, onlinePassword: null)
+        {
+        }
 
         /// <summary>
-        /// 构造字典。onlinePassword 为在线服务按压缩包哈希下发的共享密码（可为 null，
-        /// 一个哈希对应一个密码）：置于待办列表头部，保证被最先测试；
-        /// 与文件内重复的密码按去重规则只测一次
+        /// 构造字典。多个文件按传入顺序读取并全局去重；
+        /// onlinePassword 为在线服务按压缩包哈希下发的共享密码（可为 null）：
+        /// 置于当前一轮待测序列头部，保证被最先测试，且与文件内重复时只测一次。
         /// </summary>
-        public PasswordDictionary(string dictionaryPath, string? onlinePassword = null)
+        public PasswordDictionary(IReadOnlyList<string> dictionaryPaths, string? onlinePassword)
         {
-            DictionaryPath = dictionaryPath;
+            if (dictionaryPaths.Count == 0)
+            {
+                throw new ArgumentException("At least one dictionary path is required.", nameof(dictionaryPaths));
+            }
 
-            // 编码自适应：早年硬编 UTF-8，GBK 密码本会整份读成乱码、必然破解失败
-            Encoding = DictionaryEncoding.Detect(dictionaryPath);
+            Paths = dictionaryPaths.ToArray();
 
-            // 单趟顺序扫描：边读边去重（去重集合只为判定重复，不保序，读完即可回收）
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            var ordered = new List<string?>();
+            var passwords = new List<string>();
+            var sources = new List<DictionarySource>(dictionaryPaths.Count);
 
-            // 在线共享密码放在最前（最优先测试）；pending.Add 去重，
-            // 后续扫到文件中的同密码行会因 seen 已命中而跳过
-            if (!string.IsNullOrEmpty(onlinePassword) && seen.Add(onlinePassword))
+            foreach (string path in Paths)
             {
-                ordered.Add(onlinePassword);
-            }
+                // 编码自适应按文件进行：GBK 密码本（简中 Windows 记事本另存的默认结果）
+                // 整份读成乱码时，密码就在字典里也必然报"未找到"
+                Encoding encoding = DictionaryEncoding.Detect(path);
 
-            foreach (var line in File.ReadLines(dictionaryPath, Encoding))
-            {
-                if (seen.Add(line))
+                int before = passwords.Count;
+                foreach (string line in File.ReadLines(path, encoding))
                 {
-                    ordered.Add(line);
+                    if (seen.Add(line))
+                    {
+                        passwords.Add(line);
+                    }
                 }
+
+                sources.Add(new DictionarySource(path, encoding, passwords.Count - before));
             }
 
-            Pending = ordered;
-            Count = ordered.Count;
+            Passwords = passwords;
+            Sources = sources;
+
+            Reset(onlinePassword);
+        }
+
+        /// <summary>
+        /// 重置到队列起点，供下一个压缩包复用同一批密码。
+        /// onlinePassword 为 null 时不插入在线密码；非空时置于最前，
+        /// 并从文件密码中移除同值项（保证一轮内每个密码只测一次）。
+        /// </summary>
+        public void Reset(string? onlinePassword = null)
+        {
+            lock (SyncRoot)
+            {
+                var pending = new List<string?>(Passwords.Count + 1);
+
+                if (!string.IsNullOrEmpty(onlinePassword))
+                {
+                    pending.Add(onlinePassword);
+                }
+
+                foreach (string password in Passwords)
+                {
+                    if (!string.Equals(password, onlinePassword, StringComparison.Ordinal))
+                    {
+                        pending.Add(password);
+                    }
+                }
+
+                Pending = pending;
+                Cursor = 0;
+                Count = pending.Count;
+            }
         }
 
         /// <summary>
@@ -71,23 +142,7 @@ namespace ArchivePasswordTestTool
         {
             lock (SyncRoot)
             {
-                while (Cursor < Pending.Count)
-                {
-                    string? password = Pending[Cursor];
-                    if (password is null)
-                    {
-                        // 已被并发取走（正常路径下不会发生：游标保证每个槽只读一次）
-                        Cursor++;
-                        continue;
-                    }
-
-                    // 取走即释放引用，让已测试的密码可被 GC 回收
-                    Pending[Cursor] = null;
-                    Cursor++;
-                    return password;
-                }
-
-                return null;
+                return Cursor < Pending.Count ? Pending[Cursor++] : null;
             }
         }
 
@@ -95,12 +150,9 @@ namespace ArchivePasswordTestTool
         {
             lock (SyncRoot)
             {
-                for (int i = 0; i < Pending.Count; i++)
-                {
-                    Pending[i] = null;
-                }
-
-                Cursor = Pending.Count;
+                Pending.Clear();
+                Cursor = 0;
+                Count = 0;
             }
         }
     }

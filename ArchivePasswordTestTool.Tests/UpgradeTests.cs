@@ -54,25 +54,30 @@ public class UpgradeTests
     }
 
     /// <summary>
-    /// 更新提示必须先于「是否保存测试结果」确认被消费。
-    /// 后者包含两个阻塞式确认（保存文件、打开报告），用户若停在那里或直接关窗口，
-    /// 排在后面的更新提示就再也没机会出现——这是实际被用户撞到的问题。
+    /// 更新提示必须先于本轮结束时的阻塞式确认（打开报告、下一轮询问）被消费。
+    /// 用户若停在那里或直接关窗口，排在后面的更新提示就再也没机会出现——
+    /// 这是实际被用户撞到的问题。批量编排把该顺序固定在 BatchRunner。
     /// </summary>
     [Fact]
-    public void UpdatePromptIsConsumedBeforeSaveResultConfirmation()
+    public void UpdatePromptIsConsumedBeforePostBatchConfirmation()
     {
-        string runnerPath = Path.Combine(
-            TestPaths.RepoRoot, "ArchivePasswordTestTool", "Services", "Runner.cs");
-        string source = File.ReadAllText(runnerPath);
+        string batchRunnerPath = Path.Combine(
+            TestPaths.RepoRoot, "ArchivePasswordTestTool", "Services", "BatchRunner.cs");
+        string source = File.ReadAllText(batchRunnerPath);
 
         int updateIndex = source.IndexOf("Upgrade.CompleteBackgroundCheck()", StringComparison.Ordinal);
-        int saveIndex = source.IndexOf("ResultsWriter.WriteIfRequested(", StringComparison.Ordinal);
+        int openIndex = source.IndexOf("ResultsWriter.OfferOpen(", StringComparison.Ordinal);
+        int nextRoundIndex = source.IndexOf("Resources.BatchNextRoundPrompt", StringComparison.Ordinal);
 
-        Assert.True(updateIndex >= 0, "Runner.cs 中未找到 Upgrade.CompleteBackgroundCheck() 调用");
-        Assert.True(saveIndex >= 0, "Runner.cs 中未找到 ResultsWriter.WriteIfRequested 调用");
+        Assert.True(updateIndex >= 0, "BatchRunner.cs 中未找到 Upgrade.CompleteBackgroundCheck() 调用");
+        Assert.True(openIndex >= 0, "BatchRunner.cs 中未找到 ResultsWriter.OfferOpen 调用");
+        Assert.True(nextRoundIndex >= 0, "BatchRunner.cs 中未找到下一轮询问");
         Assert.True(
-            updateIndex < saveIndex,
-            "更新提示必须排在保存结果确认之前，否则用户卡在保存确认时看不到更新提示");
+            updateIndex < openIndex,
+            "更新提示必须排在打开报告确认之前，否则用户卡在确认时看不到更新提示");
+        Assert.True(
+            updateIndex < nextRoundIndex,
+            "更新提示必须排在下一轮询问之前，否则用户直接关窗口时看不到更新提示");
     }
 
     /// <summary>

@@ -10,10 +10,11 @@ ArchivePasswordTestTool/
 ├─ Cli/              参数解析与进程模式分流（Options / Arguments / Instance）
 ├─ Interop/          7-Zip 原生互操作：COM 契约与回调、库加载、格式检测、Windows API 汇集、
 │                    内嵌 7z.dll 的提取（EmbeddedSevenZip）
-├─ Services/         业务核心：Runner（主流程）、Planner（执行规划）、MultiProcess（多进程引擎）、
-│                    SevenZip（环境定位）、Sync（在线共享交互）、PasswordDictionary、
-│                    DictionaryEncoding（字典编码探测）、ResultsWriter、HttpTransport、
-│                    Upgrade、OnlineService
+├─ Services/         业务核心：BatchRunner（批量编排与下一轮）、Runner（单包测密）、
+│                    ArchiveEnumerator（文件/文件夹展开）、Planner（执行规划）、
+│                    MultiProcess（多进程引擎）、SevenZip（环境定位）、Sync（在线共享交互）、
+│                    PasswordDictionary（多字典合并）、DictionaryEncoding（字典编码探测）、
+│                    ResultsWriter、HttpTransport、Upgrade、OnlineService
 ├─ Ui/               界面输出与交互引导（Spectre.Console）
 └─ Properties/       多语言资源（resx，en/zh-CN/ja/fr/ru）
 
@@ -21,6 +22,44 @@ ArchivePasswordTestTool.Tests/   xUnit 测试（样本自动生成）
 
 build/                          构建期工具：BuildTasks.cs（csproj 里两个 UsingTask 的源码）
 ```
+
+## 多字典与批量处理
+
+### 职责拆分
+
+```
+BatchRunner   参数解析（一次）→ ArchiveEnumerator → 逐包 Runner → 汇总 → 下一轮
+Runner        单个压缩包：打开 → 在线查询 → 字典 Reset → 测密 → 返回 TestOutcome
+```
+
+Runner 不直接退出进程：单包失败返回带 `Error` 的 `TestOutcome`，由 BatchRunner 继续处理其余包，
+最终退出码为「任一包失败 → 1；全部完成（含未找到密码）→ 0」。这样批量里一个损坏的包
+不会吞掉其余包的结果。
+
+### 多字典
+
+- `-D` 可重复，按出现顺序读入一个有序队列并**全局去重**；在线共享密码每轮插到队首。
+- **每份文件独立做编码探测**（GBK / UTF-8 / BOM），避免多字典混用编码时整份读成乱码。
+- `PasswordDictionary.Reset()` 把游标移回起点，供下一个压缩包复用。代价是密码集合常驻内存
+  （旧实现 Pop 后逐槽释放）——这是多包复用不重复读盘的取舍。
+- 「按顺序」指队列优先级与找到即停，不是逐行串行：线程/多进程模式下实际执行仍是并发的。
+
+### 文件夹展开
+
+`ArchiveEnumerator` 的规则：递归子目录 → 扩展名白名单（`.7z/.zip/.rar/.exe/.001`）→
+签名确认（复用 `ArchiveFormatDetector`）→ 分卷只取 `.001` → 跳过隐藏/系统文件 →
+按完整路径去重 → 输入顺序优先、目录内按名称排序。
+
+显式传入的文件**不做白名单过滤**（用户点名时应当看到真实格式错误），但非首卷仍会被跳过。
+白名单之外的文件不读取、也不计入跳过统计，避免大目录刷屏。
+
+### 结果与交互
+
+- 批量开始前统一询问一次是否保存；每包写 `<压缩包>[results].txt`，不再逐包询问。
+- 只有「无参数启动且终端可交互」才进入下一轮；带参/管道调用跑完退出。
+- 下一轮沿用上一轮字典与开关，只重新询问压缩包/文件夹；空行结束会话。
+- `Tests/ArchiveEnumeratorTests`、`ArgumentsTests`、`PasswordDictionaryMultiTests`
+  守护上述规则；`UpgradeTests` 用源码断言固定「更新提示先于本轮结束时的阻塞确认」。
 
 ## 多进程测密（仅 7z）
 
@@ -188,6 +227,8 @@ dotnet test ArchivePasswordTestTool.Tests\ArchivePasswordTestTool.Tests.csproj
 
 - xUnit 2.9.2 + VSTest adapter，net10.0
 - 样本夹具 `TestDataFixture` 幂等生成 `TestData/`（不入库）：需要 7-Zip CLI；
+  可用 `APTT_SEVEN_ZIP_EXE` 指定路径，或把独立 `7za.exe` 放到 `tools\7zip\full\7z.exe`；
+  精简版没有 `7z.sfx` 模块时，SFX 样本退化为「PE stub + 7z 数据」合成。
   RAR 系用例需要 WinRAR，未安装时自动跳过（此时样本生成失败会直接抛异常而非静默通过）
 - 覆盖范围：格式识别（含 SFX 签名偏移）、分卷收集规则、字典消费语义（含并发出队）、
   多进程协议与批大小调度、在线服务交互（内置 fake HTTP server）、多语言资源一致性、

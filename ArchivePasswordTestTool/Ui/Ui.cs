@@ -127,6 +127,81 @@ namespace ArchivePasswordTestTool
         }
 
         /// <summary>
+        /// 批量进度提示：当前是第几个压缩包。只有一个包时不打印，避免与单包输出重复。
+        /// </summary>
+        public static void WriteBatchPosition(int index, int total, string archivePath)
+        {
+            if (total <= 1)
+            {
+                return;
+            }
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[bold cyan]{Escape(string.Format(Resources.BatchPosition, index, total, archivePath))}[/]");
+        }
+
+        /// <summary>
+        /// 文件夹展开后的跳过统计。没有跳过项时不输出。
+        /// </summary>
+        public static void WriteBatchSkipped(IReadOnlyList<SkippedEntry> skipped)
+        {
+            if (skipped.Count == 0)
+            {
+                return;
+            }
+
+            int unrecognized = skipped.Count(entry => entry.Reason == ArchiveSkipReason.Unrecognized);
+            int nonFirstVolume = skipped.Count(entry => entry.Reason == ArchiveSkipReason.NonFirstVolume);
+            int hiddenOrSystem = skipped.Count(entry => entry.Reason == ArchiveSkipReason.HiddenOrSystem);
+            int inaccessible = skipped.Count(entry => entry.Reason == ArchiveSkipReason.Inaccessible);
+
+            Ui.WriteWarning(string.Format(
+                Resources.BatchSkippedFiles,
+                skipped.Count,
+                unrecognized,
+                nonFirstVolume,
+                hiddenOrSystem,
+                inaccessible));
+        }
+
+        /// <summary>
+        /// 批量结果汇总表。单包时由调用方跳过，避免与结果面板重复。
+        /// </summary>
+        public static void WriteBatchSummary(IReadOnlyList<TestOutcome> outcomes)
+        {
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .Title($"[bold cyan]{Escape(Resources.BatchSummaryTitle)}[/]");
+
+            table.AddColumn($"[grey]{Escape(Resources.BatchSummaryArchive)}[/]");
+            table.AddColumn($"[grey]{Escape(Resources.BatchSummaryResult)}[/]");
+            table.AddColumn($"[grey]{Escape(Resources.BatchSummaryElapsed)}[/]");
+
+            foreach (var outcome in outcomes)
+            {
+                string result = outcome.Error is not null
+                    ? outcome.Error
+                    : !outcome.Encrypted
+                        ? Resources.TestResultArchiveNotEncrypted
+                        : !string.IsNullOrEmpty(outcome.Password)
+                            ? string.Format(Resources.PasswordFoundSuccess, outcome.Password)
+                            : Resources.PasswordNotFound;
+
+                table.AddRow(
+                    $"[white]{Escape(outcome.ArchivePath)}[/]",
+                    outcome.Error is not null
+                        ? $"[red]{Escape(result)}[/]"
+                        : outcome.Password is { Length: > 0 } && outcome.Encrypted
+                            ? $"[green]{Escape(result)}[/]"
+                            : $"[grey]{Escape(result)}[/]",
+                    $"[white]{Escape(outcome.Elapsed.ToString())}[/]");
+            }
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(table);
+        }
+
+        /// <summary>
         /// 红色错误信息（转义后输出）
         /// </summary>
         public static void WriteError(string message)

@@ -5,53 +5,43 @@ using Spectre.Console;
 namespace ArchivePasswordTestTool
 {
     /// <summary>
-    /// 测试结果落盘（交互式确认后写出 .txt 并可选打开资源管理器定位）
+    /// 测试结果落盘（批量开始前统一确认一次，逐包写出 .txt；单包时可再询问是否定位文件）
     /// </summary>
     internal static class ResultsWriter
     {
+        /// <summary>结果文件路径：与压缩包同目录，追加固定后缀</summary>
+        public static string ResultPath(string archivePath) => $"{archivePath}[results].txt";
+
         /// <summary>
-        /// 询问并写出结果文件。<paramref name="getArchiveHash"/> 只在用户确认保存后才调用，
-        /// 使"整文件读一遍算哈希"不会为一个可能被拒绝的确认白做。
+        /// 写出单个压缩包的结果。调用方负责在批量开始前询问一次是否保存，
+        /// 并保证 <see cref="TestOutcome.ArchiveHash"/> 已计算（Runner 在 saveResults=true 时完成）。
         /// </summary>
-        /// <param name="archiveEncrypted">
-        /// 归档是否加密。未加密时密码行写「未加密」而不是「未找到密码」——
-        /// 后者会误导（不是找不到，是压根没有密码）。
-        /// </param>
-        public static void WriteIfRequested(
-            string archivePath,
-            string dictionaryPath,
-            string? password,
-            bool archiveEncrypted,
-            TimeSpan elapsed,
-            Func<string> getArchiveHash)
+        public static void Write(TestOutcome outcome, string dictionaryDisplayPath)
+        {
+            string resultPath = ResultPath(outcome.ArchivePath);
+
+            using StreamWriter testOut = new(resultPath, false);
+            testOut.WriteLine(string.Format(Resources.TestResultArchive, outcome.ArchivePath));
+            testOut.WriteLine(string.Format(Resources.TestResultDictionary, dictionaryDisplayPath));
+            testOut.WriteLine(string.Format(Resources.TestResultElapsedTime, outcome.Elapsed));
+            testOut.WriteLine(string.Format(Resources.TestResultArchiveHash, outcome.ArchiveHash));
+            testOut.WriteLine(BuildPasswordLine(outcome.Password, outcome.Encrypted));
+        }
+
+        /// <summary>单包批量结束后的"是否打开报告"确认；非交互终端静默跳过</summary>
+        public static void OfferOpen(string resultPath)
         {
             if (!AnsiConsole.Profile.Out.IsTerminal || !AnsiConsole.Profile.Capabilities.Interactive)
             {
-                // 非交互环境（输出重定向/无人值守）下 Console 读取会抛异常，跳过交互式确认
                 return;
             }
 
-            if (!InteractivePrompts.ConfirmSingleKey(Resources.SaveTestResultsPrompt, true))
+            if (!InteractivePrompts.ConfirmSingleKey(Resources.ViewTestReportPrompt, true))
             {
                 return;
             }
 
-            string archiveHash = getArchiveHash();
-            string resultPath = $"{archivePath}[results].txt";
-
-            using (StreamWriter testOut = new(resultPath, false))
-            {
-                testOut.WriteLine(string.Format(Resources.TestResultArchive, archivePath));
-                testOut.WriteLine(string.Format(Resources.TestResultDictionary, dictionaryPath));
-                testOut.WriteLine(string.Format(Resources.TestResultElapsedTime, elapsed));
-                testOut.WriteLine(string.Format(Resources.TestResultArchiveHash, archiveHash));
-                testOut.WriteLine(BuildPasswordLine(password, archiveEncrypted));
-            }
-
-            if (InteractivePrompts.ConfirmSingleKey(Resources.ViewTestReportPrompt, true))
-            {
-                Process.Start("explorer.exe", $"/select, \"{resultPath}\"");
-            }
+            Process.Start("explorer.exe", $"/select, \"{resultPath}\"");
         }
 
         /// <summary>

@@ -325,4 +325,31 @@
   <data name="UpgradeApplied" xml:space="preserve">
     <value>Обновлено до {0}.</value>
   </data>
+  <data name="InteractiveMultiInputHint" xml:space="preserve">
+    <value>Перетащите или введите несколько путей; пустая строка завершает ввод.</value>
+  </data>
+  <data name="BatchNoArchives" xml:space="preserve">
+    <value>Не найдено архивов для обработки.</value>
+  </data>
+  <data name="BatchPosition" xml:space="preserve">
+    <value>Архив {0}/{1}: {2}</value>
+  </data>
+  <data name="BatchSkippedFiles" xml:space="preserve">
+    <value>Пропущено файлов: {0} (нераспознанных {1}, не первый том {2}, скрытых/системных {3}, недоступных {4}).</value>
+  </data>
+  <data name="BatchNextRoundPrompt" xml:space="preserve">
+    <value>Обработать следующий раунд?</value>
+  </data>
+  <data name="BatchSummaryTitle" xml:space="preserve">
+    <value>Результаты пакета</value>
+  </data>
+  <data name="BatchSummaryArchive" xml:space="preserve">
+    <value>Архив</value>
+  </data>
+  <data name="BatchSummaryResult" xml:space="preserve">
+    <value>Результат</value>
+  </data>
+  <data name="BatchSummaryElapsed" xml:space="preserve">
+    <value>Время</value>
+  </data>
 </root>

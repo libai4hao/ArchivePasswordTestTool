@@ -837,5 +837,104 @@ namespace ArchivePasswordTestTool.Properties
                 return EmbeddedResourceManager.GetString("UnsupportedArchiveFormat", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   查找类似 No processable archives found. 的本地化字符串。
+        /// </summary>
+        public static string BatchNoArchives
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchNoArchives", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Process another round? 的本地化字符串。
+        /// </summary>
+        public static string BatchNextRoundPrompt
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchNextRoundPrompt", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Archive {0}/{1}: {2} 的本地化字符串。
+        /// </summary>
+        public static string BatchPosition
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchPosition", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Skipped {0} file(s): ... 的本地化字符串。
+        /// </summary>
+        public static string BatchSkippedFiles
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchSkippedFiles", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Archive 的本地化字符串。
+        /// </summary>
+        public static string BatchSummaryArchive
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchSummaryArchive", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Elapsed 的本地化字符串。
+        /// </summary>
+        public static string BatchSummaryElapsed
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchSummaryElapsed", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Result 的本地化字符串。
+        /// </summary>
+        public static string BatchSummaryResult
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchSummaryResult", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Batch results 的本地化字符串。
+        /// </summary>
+        public static string BatchSummaryTitle
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("BatchSummaryTitle", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   查找类似 Drop or enter paths; press Enter on an empty line to finish. 的本地化字符串。
+        /// </summary>
+        public static string InteractiveMultiInputHint
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("InteractiveMultiInputHint", resourceCulture);
+            }
+        }
     }
 }
