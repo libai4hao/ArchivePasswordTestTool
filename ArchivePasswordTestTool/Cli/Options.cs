@@ -26,6 +26,9 @@ namespace ArchivePasswordTestTool
         /// <summary>找到密码后是否回传（默认开启，-NoReport 关闭）</summary>
         public bool ReportOnline { get; init; }
 
+        /// <summary>禁用 GPU/hashcat 加速（-NoGpu 或 APTT_GPU=0）</summary>
+        public bool NoGpu { get; init; }
+
         /// <summary>大小写不敏感的开关检测</summary>
         private static bool HasFlag(string[] args, string name)
         {
@@ -65,6 +68,8 @@ namespace ArchivePasswordTestTool
                 OnlineServiceUrl = Arguments.GetParameter(args, "Api", OnlineService.DefaultServiceUrl).Replace("\"", "").Trim().TrimEnd('/'),
                 QueryOnline = !HasFlag(args, "NoQuery"),
                 ReportOnline = !HasFlag(args, "NoReport"),
+                NoGpu = HasFlag(args, "NoGpu")
+                    || Environment.GetEnvironmentVariable("APTT_GPU") == "0",
             };
         }
 

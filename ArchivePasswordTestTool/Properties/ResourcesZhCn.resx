@@ -352,4 +352,37 @@
   <data name="BatchSummaryElapsed" xml:space="preserve">
     <value>用时</value>
   </data>
+  <data name="InfoAcceleration" xml:space="preserve">
+    <value>加速方式</value>
+  </data>
+  <data name="AccelerationCpu" xml:space="preserve">
+    <value>CPU</value>
+  </data>
+  <data name="GpuAccelerationValue" xml:space="preserve">
+    <value>GPU · {0} · hashcat {1}</value>
+  </data>
+  <data name="GpuToolsMissing" xml:space="preserve">
+    <value>未在程序目录找到 GPU 工具（hashcat.exe / 7z2hashcat64-2.0.exe），使用 CPU。</value>
+  </data>
+  <data name="GpuDeviceNotFound" xml:space="preserve">
+    <value>未找到可用的 GPU 设备，使用 CPU。</value>
+  </data>
+  <data name="GpuProbeFailed" xml:space="preserve">
+    <value>hashcat 初始化失败：{0}</value>
+  </data>
+  <data name="GpuFormatUnsupported" xml:space="preserve">
+    <value>该压缩包格式不支持 GPU 加速，使用 CPU。</value>
+  </data>
+  <data name="GpuSplitUnsupported" xml:space="preserve">
+    <value>分卷 7z 不支持 GPU 加速，使用 CPU。</value>
+  </data>
+  <data name="GpuExtractorFailed" xml:space="preserve">
+    <value>GPU 哈希提取失败：{0}</value>
+  </data>
+  <data name="GpuSessionFailed" xml:space="preserve">
+    <value>GPU 加速失败：{0}，回退到 CPU。</value>
+  </data>
+  <data name="GpuHashcatTooOld" xml:space="preserve">
+    <value>hashcat {0} 版本过旧（需要 6.x），使用 CPU。</value>
+  </data>
 </root>

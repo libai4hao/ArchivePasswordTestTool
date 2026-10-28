@@ -936,5 +936,104 @@ namespace ArchivePasswordTestTool.Properties
                 return EmbeddedResourceManager.GetString("InteractiveMultiInputHint", resourceCulture);
             }
         }
+
+        /// <summary>查找类似 CPU 的本地化字符串。</summary>
+        public static string AccelerationCpu
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("AccelerationCpu", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 GPU · {0} · hashcat {1} 的本地化字符串。</summary>
+        public static string GpuAccelerationValue
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuAccelerationValue", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 No usable GPU device was found; using CPU. 的本地化字符串。</summary>
+        public static string GpuDeviceNotFound
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuDeviceNotFound", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 GPU hash extraction failed: {0} 的本地化字符串。</summary>
+        public static string GpuExtractorFailed
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuExtractorFailed", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 This archive format cannot use GPU acceleration; using CPU. 的本地化字符串。</summary>
+        public static string GpuFormatUnsupported
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuFormatUnsupported", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 hashcat {0} is too old (6.x required); using CPU. 的本地化字符串。</summary>
+        public static string GpuHashcatTooOld
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuHashcatTooOld", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 hashcat initialization failed: {0} 的本地化字符串。</summary>
+        public static string GpuProbeFailed
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuProbeFailed", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 GPU acceleration failed: {0}; falling back to CPU. 的本地化字符串。</summary>
+        public static string GpuSessionFailed
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuSessionFailed", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 Split 7z archives cannot use GPU acceleration; using CPU. 的本地化字符串。</summary>
+        public static string GpuSplitUnsupported
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuSplitUnsupported", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 GPU tools not found next to the program ... 的本地化字符串。</summary>
+        public static string GpuToolsMissing
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuToolsMissing", resourceCulture);
+            }
+        }
+
+        /// <summary>查找类似 Acceleration 的本地化字符串。</summary>
+        public static string InfoAcceleration
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("InfoAcceleration", resourceCulture);
+            }
+        }
     }
 }

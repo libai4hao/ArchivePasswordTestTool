@@ -352,4 +352,37 @@ Vous pouvez aussi le télécharger manuellement depuis la page des versions.</va
   <data name="BatchSummaryElapsed" xml:space="preserve">
     <value>Durée</value>
   </data>
+  <data name="InfoAcceleration" xml:space="preserve">
+    <value>Accélération</value>
+  </data>
+  <data name="AccelerationCpu" xml:space="preserve">
+    <value>Processeur</value>
+  </data>
+  <data name="GpuAccelerationValue" xml:space="preserve">
+    <value>GPU · {0} · hashcat {1}</value>
+  </data>
+  <data name="GpuToolsMissing" xml:space="preserve">
+    <value>Outils GPU introuvables à côté du programme (hashcat.exe / 7z2hashcat64-2.0.exe) ; utilisation du processeur.</value>
+  </data>
+  <data name="GpuDeviceNotFound" xml:space="preserve">
+    <value>Aucun GPU utilisable trouvé ; utilisation du processeur.</value>
+  </data>
+  <data name="GpuProbeFailed" xml:space="preserve">
+    <value>Échec de l'initialisation de hashcat : {0}</value>
+  </data>
+  <data name="GpuFormatUnsupported" xml:space="preserve">
+    <value>Ce format ne peut pas utiliser l'accélération GPU ; utilisation du processeur.</value>
+  </data>
+  <data name="GpuSplitUnsupported" xml:space="preserve">
+    <value>Les archives 7z fractionnées ne peuvent pas utiliser l'accélération GPU ; utilisation du processeur.</value>
+  </data>
+  <data name="GpuExtractorFailed" xml:space="preserve">
+    <value>Échec de l'extraction du hachage GPU : {0}</value>
+  </data>
+  <data name="GpuSessionFailed" xml:space="preserve">
+    <value>Échec de l'accélération GPU : {0} ; retour au processeur.</value>
+  </data>
+  <data name="GpuHashcatTooOld" xml:space="preserve">
+    <value>hashcat {0} est trop ancien (6.x requis) ; utilisation du processeur.</value>
+  </data>
 </root>

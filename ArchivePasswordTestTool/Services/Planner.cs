@@ -9,6 +9,7 @@ namespace ArchivePasswordTestTool
     {
         Threaded,
         MultiProcess,
+        Gpu,
     }
 
     /// <summary>
@@ -22,17 +23,31 @@ namespace ArchivePasswordTestTool
         /// <summary>
         /// 执行模式与并发配置。多进程仅对 7z 且字典足够大时启用（绕开 dll 内 KDF 全局锁）
         /// </summary>
+        // 阈值按实测的 CPU/GPU 速度与 hashcat 固定启动开销（约 13 秒）折算：
+        // 7z CPU ≈ 1.2k/s、GPU ≈ 468k/s → 约 16k 行回本，留余量取 25k；
+        // ZIP AES CPU ≈ 33k/s、GPU ≈ 1.34M/s → 约 440k 行回本，取 500k。
+        public const int GpuMinPasswords7z = 25_000;
+        public const int GpuMinPasswordsZip = 500_000;
+
         public (ExecutionMode Mode, int WorkerCount, int ThreadParallelism, int DisplayParallelism) Plan(
             string dllPath,
             ArchiveInfo archiveInfo,
             string archivePath,
-            long dictionaryCount)
+            long dictionaryCount,
+            bool gpuReady = false)
         {
             int threadParallelism = Math.Max(1, Environment.ProcessorCount - 1);
 
             if (int.TryParse(Environment.GetEnvironmentVariable("APTT_PARALLELISM"), out int envParallelism) && envParallelism > 0)
             {
                 threadParallelism = Math.Min(envParallelism, threadParallelism);
+            }
+
+            // GPU 启动（OpenCL 初始化 + 内核编译）有固定成本，小字典交给 CPU 更快
+            int gpuMinPasswords = ResolveGpuMinPasswords(archiveInfo);
+            if (gpuReady && dictionaryCount >= gpuMinPasswords)
+            {
+                return (ExecutionMode.Gpu, 0, threadParallelism, 1);
             }
 
             int workerProcessCount = MultiProcess.ResolveWorkerCount();
@@ -53,6 +68,24 @@ namespace ArchivePasswordTestTool
             return useMultiProcess
                 ? (ExecutionMode.MultiProcess, workerProcessCount, threadParallelism, workerProcessCount)
                 : (ExecutionMode.Threaded, 0, threadParallelism, threadParallelism);
+        }
+
+        /// <summary>字典规模是否达到值得启用 GPU 的阈值（供 Runner 决定是否探测 hashcat）</summary>
+        public static bool GpuWouldBeUsed(ArchiveInfo archiveInfo, long dictionaryCount)
+        {
+            return dictionaryCount >= ResolveGpuMinPasswords(archiveInfo);
+        }
+
+        private static int ResolveGpuMinPasswords(ArchiveInfo archiveInfo)
+        {
+            if (int.TryParse(Environment.GetEnvironmentVariable("APTT_GPU_MIN"), out int value) && value >= 0)
+            {
+                return value;
+            }
+
+            return archiveInfo.Type == SevenZipGuids.CLSID_CFormatZip
+                ? GpuMinPasswordsZip
+                : GpuMinPasswords7z;
         }
 
         /// <summary>从池中取出一个上下文；池空时按需新建</summary>

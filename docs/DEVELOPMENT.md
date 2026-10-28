@@ -7,6 +7,7 @@
 ```text
 ArchivePasswordTestTool/
 ├─ Program.cs        程序入口：启动模式路由 + 版本号（从程序集元数据读取）
+├─ Acceleration/     GPU 加速：hashcat 探测、哈希提取（7z2hashcat / ZIP AES）、会话编排
 ├─ Cli/              参数解析与进程模式分流（Options / Arguments / Instance）
 ├─ Interop/          7-Zip 原生互操作：COM 契约与回调、库加载、格式检测、Windows API 汇集、
 │                    内嵌 7z.dll 的提取（EmbeddedSevenZip）
@@ -60,6 +61,84 @@ Runner 不直接退出进程：单包失败返回带 `Error` 的 `TestOutcome`�
 - 下一轮沿用上一轮字典与开关，只重新询问压缩包/文件夹；直接按 Enter 结束会话。
 - `Tests/ArchiveEnumeratorTests`、`ArgumentsTests`、`PasswordDictionaryMultiTests`
   守护上述规则；`UpgradeTests` 用源码断言固定「更新提示先于本轮结束时的阻塞确认」。
+
+## GPU 加速（hashcat）
+
+### 支持范围与取舍
+
+只覆盖能**低成本验证密码**的格式：
+
+| 格式 | 支持 | 原因 |
+|------|------|------|
+| header 加密 7z（`-mhe=on`） | ✅ | 加密的 header 有 CRC，解密即可验证，不需要解压文件 |
+| WinZip AES ZIP | ✅ | 条目自带 2 字节密码校验值与 10 字节认证码 |
+| 普通 7z | ❌ | 必须解压 LZMA 数据后校验文件 CRC，GPU 无有效路径 |
+| ZIP ZipCrypto | ❌ | 无 KDF，GPU 收益有限 |
+| RAR4 / RAR5 | ❌ | 格式专有，首期不实现 |
+| 分卷 7z | ❌ | 7z2hashcat 2.0 对分卷 seek 失败；整包复制代价过高 |
+
+不支持/工具缺失/会话失败时一律自动回退 CPU；`-NoGpu` 或 `APTT_GPU=0` 可强制 CPU。
+
+### 工具放置
+
+只查**程序 exe 同目录**，不搜索 PATH/注册表：
+
+```text
+ArchivePasswordTestTool.exe
+hashcat.exe                  ← hashcat 6.x 发行包
+OpenCL\  modules\  hashcat.hcstat2  ...
+7z2hashcat64-2.0.exe         ← 仅 7z 需要
+```
+
+hashcat 的工作目录固定为程序目录，否则找不到 `OpenCL\` 与 `modules\`。
+
+### 哈希提取
+
+- **7z**：调用 `7z2hashcat64-2.0.exe --skip-sensitive-data-warning <archive>`，
+  只接受输出中 `$7z$` 的 **type 0**（header 加密）。普通 7z 的 type 2 直接回退 CPU。
+- **ZIP**：自研 `ZipAesHashReader`：
+  EOCD → 中央目录 → 本地头 → `0x9901` AES extra field；
+  AES-128/192/256 的 salt 分别为 8/12/16 字节，密文长度 = 压缩大小 - salt - 2 - 10。
+  生成 `$zip2$*0*<mode>*0*<salt>*<verify>*<cipherLen>*<cipher>*<auth>*$/zip2$`。
+  ZIP64、ZipCrypto 与密文 > 4 MB 回退 CPU。
+
+哈希格式来自 hashcat 6.2.6 的 `module_11600.c` / `module_13600.c`：
+
+```text
+$7z$<type>$<cycles>$<saltLen>$<salt>$<ivLen>$<iv>$<crc>$<dataLen>$<unpackSize>$<data>
+$zip2$*0*<mode>*0*<salt>*<verify>*<cipherLen>*<cipher>*<auth>*$/zip2$
+```
+
+### 会话与确认
+
+`HashcatSession` 用 `--stdin --keep-guessing --quiet`：
+
+- 字典经 `PasswordDictionary.PopBatch` 按顺序写入 stdin（不生成临时合并词表）；
+- `--outfile --outfile-format 2` 写明文候选，主进程轮询；
+- 候选逐个确认：header 加密用**新建 `ArchiveContext(password)`**（Open 即验密），
+  其余用现有 `ArchiveContext.TestPassword`；
+- ZIP AES 的 2 字节 verifier 有 1/65536 假阳性，`--keep-guessing` 保证继续；
+- 找到确认密码后立即终止 hashcat；失败则 `dictionary.Reset()` 后回退 CPU；
+- 临时 hash/potfile/outfile 放在 `%TEMP%\ApttHashcat-<guid>`，`finally` 删除。
+
+### 阈值与探测成本
+
+阈值按本机实测折算（RX 6650 XT）：
+
+| 格式 | CPU | GPU | 固定开销 | 回本点 | 默认阈值 |
+|------|-----|-----|----------|--------|----------|
+| header 7z | ≈1.2k/s | ≈468k/s | ≈13 s | ≈16k 行 | 25,000 |
+| ZIP AES | ≈33k/s | ≈1.34M/s | ≈13 s | ≈440k 行 | 500,000 |
+
+`APTT_GPU_MIN` 可统一覆盖两个阈值。hashcat 首次 `-I` 与内核编译约 10–15 秒，
+小字典走 GPU 反而更慢；Runner 在字典低于阈值时**不会探测 hashcat**，
+避免无意义的十几秒启动开销。
+
+### 测试
+
+- 无 hashcat/GPU 的 CI：`HashExtractionTests` 覆盖 ZIP 解析；GPU E2E 自动跳过。
+- 本地验证：把 hashcat 发行包与 `7z2hashcat64-2.0.exe` 放到主程序输出目录，
+  `EndToEndTests` 的 GPU 用例会真实运行；`-NoGpu` 用例固定 CPU 路径。
 
 ## 多进程测密（仅 7z）
 

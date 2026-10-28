@@ -352,4 +352,37 @@
   <data name="BatchSummaryElapsed" xml:space="preserve">
     <value>経過時間</value>
   </data>
+  <data name="InfoAcceleration" xml:space="preserve">
+    <value>高速化</value>
+  </data>
+  <data name="AccelerationCpu" xml:space="preserve">
+    <value>CPU</value>
+  </data>
+  <data name="GpuAccelerationValue" xml:space="preserve">
+    <value>GPU · {0} · hashcat {1}</value>
+  </data>
+  <data name="GpuToolsMissing" xml:space="preserve">
+    <value>プログラムと同じ場所に GPU ツール（hashcat.exe / 7z2hashcat64-2.0.exe）がありません。CPU を使用します。</value>
+  </data>
+  <data name="GpuDeviceNotFound" xml:space="preserve">
+    <value>利用可能な GPU デバイスが見つかりません。CPU を使用します。</value>
+  </data>
+  <data name="GpuProbeFailed" xml:space="preserve">
+    <value>hashcat の初期化に失敗しました：{0}</value>
+  </data>
+  <data name="GpuFormatUnsupported" xml:space="preserve">
+    <value>この形式は GPU 高速化に対応していません。CPU を使用します。</value>
+  </data>
+  <data name="GpuSplitUnsupported" xml:space="preserve">
+    <value>分割 7z は GPU 高速化に対応していません。CPU を使用します。</value>
+  </data>
+  <data name="GpuExtractorFailed" xml:space="preserve">
+    <value>GPU 用ハッシュの抽出に失敗しました：{0}</value>
+  </data>
+  <data name="GpuSessionFailed" xml:space="preserve">
+    <value>GPU 高速化に失敗しました：{0}。CPU に切り替えます。</value>
+  </data>
+  <data name="GpuHashcatTooOld" xml:space="preserve">
+    <value>hashcat {0} は古すぎます（6.x が必要）。CPU を使用します。</value>
+  </data>
 </root>

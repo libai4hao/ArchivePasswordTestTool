@@ -11,6 +11,8 @@
 - **多个密码字典按顺序合并测试**：`-D` 可重复，前一个字典的密码优先测试，跨文件自动去重
 - **批量处理**：`-F` 可重复，既可传多个压缩包，也可传文件夹（递归扫描，只收 7z/zip/rar/SFX/分卷首卷）
 - **交互式下一轮**：无参数启动时，处理完成后可继续选择新的压缩包，沿用上一轮字典
+- **可选 GPU 加速（AMD/OpenCL）**：header 加密 7z 与 WinZip AES ZIP 可交给同目录的 hashcat 计算；
+  候选密码仍由 7z.dll 最终确认，`-NoGpu` 可强制回退 CPU
 - **自带 7-Zip 引擎**：下载单个 exe 即可使用，无需预装 7-Zip（也可用系统已安装的版本或 `-lib` 指定）
 - 自动查找系统中已安装的 7-Zip，也可手动指定 7z.dll 路径；三者全无时给出官方下载引导（可选一键打开浏览器）
 - 界面语言按系统自动切换：English / 简体中文 / 日本語 / Français / Русский
@@ -31,6 +33,7 @@ ArchivePasswordTestTool.exe -D <字典文件> [-D <字典文件> ...] -F <压缩
 | `-Api` | 可选，覆盖在线密码共享服务地址（默认 `OnlineService.DefaultServiceUrl`） |
 | `-NoQuery` | 关闭"测试前按哈希请求在线共享密码"（默认开启） |
 | `-NoReport` | 关闭"找到密码后自动回传"（默认开启） |
+| `-NoGpu` | 禁用 GPU/hashcat 加速（等价于 `APTT_GPU=0`） |
 
 传入文件夹时递归扫描：只处理扩展名在白名单（`.7z/.zip/.rar/.exe/.001`）且文件签名确认为压缩包的文件；
 分卷只取 `.001`，跳过 `.002` 及以后、隐藏/系统文件与无法访问的目录。跳过数量会在开始前提示。
@@ -40,6 +43,37 @@ ArchivePasswordTestTool.exe -D <字典文件> [-D <字典文件> ...] -F <压缩
 处理完成后会询问是否继续下一轮（沿用上一轮字典，只重新选择压缩包）。带参启动则完全按参数行事，
 跑完直接退出（缺失必需参数报错退出）。
 双击启动出现错误时（如未安装 7-Zip），窗口会等待按键确认后才关闭，并给出 7-Zip 下载页引导；从终端运行则直接退出不等待。
+
+## GPU 加速（可选）
+
+GPU 加速通过外部的 **hashcat 6.x（OpenCL）** 完成，程序本身不内置密码学内核。
+把 hashcat 的 Windows 发行包**整体解压到程序 exe 同目录**（至少包含 `hashcat.exe`、`OpenCL\`、
+`modules\`、`hashcat.hcstat2`）；使用 7z 加速时，再把 `7z2hashcat64-2.0.exe` 放到同一目录。
+程序只在该目录查找，不搜索 PATH 或注册表。
+
+| 项目 | 说明 |
+|------|------|
+| 支持格式 | **header 加密 7z**（`-mhe=on`）、**WinZip AES ZIP**（AES-128/192/256） |
+| 不支持 | 普通 7z（需解压验证）、ZipCrypto ZIP、RAR4/RAR5、分卷 7z → 自动使用 CPU |
+| 启用条件 | hashcat 可用 + GPU 设备可用 + 字典规模达到阈值（7z ≥ 25,000 行、ZIP AES ≥ 500,000 行，`APTT_GPU_MIN` 可统一覆盖） |
+| 结果确认 | hashcat 给出的候选仍逐条交给 7z.dll 实际验证，不会直接采信 |
+| 临时文件 | hash/potfile/outfile 位于独立临时目录，结束后删除 |
+
+```text
+# 把 hashcat 解压到程序目录后直接运行即可，加速方式会显示在信息面板
+ArchivePasswordTestTool.exe -D dict.txt -F secret-header.7z
+
+# 强制使用 CPU
+ArchivePasswordTestTool.exe -D dict.txt -F secret-header.7z -NoGpu
+
+# 小字典也启用 GPU（调试/测试用）
+set APTT_GPU_MIN=0
+```
+
+首次启用时 hashcat 需要初始化 OpenCL 并编译内核，通常有 **10–15 秒**固定开销，因此小字典默认仍走 CPU。
+hashcat、7z2hashcat 均不随本程序分发；请从官方渠道获取（hashcat.net / GitHub），
+部分杀软会对压缩包破解工具误报，请自行确认来源。GPU 不可用、工具缺失或 hashcat 报错时，
+程序会打印原因并自动回退 CPU，结果与 CPU 模式一致。
 
 ## 在线密码共享
 
@@ -71,6 +105,8 @@ ArchivePasswordTestTool.exe -D common.txt -D company.txt -F a.7z -F D:\archives 
 | `APTT_WORKERS` | 指定 7z 测密的工作进程数（默认 = 逻辑核心数，取值 1 时退回进程内线程模式） |
 | `APTT_TRACE` | 设为 `1` 时将 COM 回调跟踪日志输出到 stderr，用于问题诊断 |
 | `APTT_FORCE_EMBEDDED_7Z` | 设为 `1` 时跳过系统已安装的 7-Zip，强制用内置的 `7z.dll`（系统那份版本过旧/损坏时可用） |
+| `APTT_GPU` | 设为 `0` 时禁用 GPU 加速（等同 `-NoGpu`）；其他值/未设置时自动探测 |
+| `APTT_GPU_MIN` | 统一覆盖 GPU 启用的字典行数阈值（默认 7z `25000`、ZIP AES `500000`）；设为 `0` 可强制小字典也走 GPU |
 | `APTT_NO_UPGRADE_CHECK` | 设为 `1` 时跳过启动时的后台更新检查（离线/内网环境用） |
 
 更新检查在后台异步进行（每小时最多请求一次，同一版本只提示一次），仅当有新版本时才提示，不阻塞测密。发现新版本时会自动下载到程序目录，**下次启动自动完成替换并重启**，无需手动覆盖；下载失败（目录只读、断网等）只提示不重试阻塞，下个周期自动重试。配置（含检查时间戳与已提示版本）保存在 `%LOCALAPPDATA%\ArchivePasswordTestTool\config.json`，不会写入程序目录。

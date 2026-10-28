@@ -133,7 +133,40 @@ namespace ArchivePasswordTestTool
                 }
             }
 
-            var (Mode, WorkerCount, ThreadParallelism, DisplayParallelism) = planner.Plan(options.SevenZipDllPath, archiveInfo, archivePath, dictionaryCount);
+            // 小字典连 hashcat -I（约十秒）的探测成本都不值得付，直接走 CPU
+            bool gpuEligible = !options.NoGpu && Planner.GpuWouldBeUsed(archiveInfo, dictionaryCount);
+            GpuHashJob gpuJob = default!;
+            HashcatInstallation gpuInstallation = default!;
+            string gpuReason = string.Empty;
+            bool gpuReady = false;
+
+            if (gpuEligible)
+            {
+                gpuReady = GpuPasswordTester.TryPrepare(
+                    options,
+                    archivePath,
+                    archiveInfo,
+                    out gpuJob,
+                    out gpuInstallation,
+                    out gpuReason);
+            }
+
+            // 只在"格式本可加速但工具/设备不可用"时提示，避免普通 7z/RAR 用户被噪音打扰
+            if (!gpuReady
+                && !options.NoGpu
+                && GpuPasswordTester.IsCandidateFormat(archiveInfo)
+                && !string.IsNullOrEmpty(gpuReason))
+            {
+                Ui.WriteNote(gpuReason);
+            }
+
+            var (Mode, WorkerCount, ThreadParallelism, DisplayParallelism) =
+                planner.Plan(options.SevenZipDllPath, archiveInfo, archivePath, dictionaryCount, gpuReady);
+
+            string acceleration = Mode == ExecutionMode.Gpu
+                ? string.Format(Resources.GpuAccelerationValue, gpuInstallation.DeviceName, gpuInstallation.Version)
+                : Resources.AccelerationCpu;
+
             Ui.WriteArchiveInfo(
                 archivePath,
                 hashComputed ? archiveHash : null,
@@ -143,9 +176,35 @@ namespace ArchivePasswordTestTool
                 archiveInfo.SupportsQuickTest,
                 dictionary.DisplayPath,
                 dictionaryCount,
-                DisplayParallelism);
+                DisplayParallelism,
+                acceleration);
 
-            if (Mode == ExecutionMode.MultiProcess)
+            if (Mode == ExecutionMode.Gpu)
+            {
+                if (!RunGpu(gpuJob, gpuInstallation, archiveInfo, dictionary, archiveContext))
+                {
+                    // hashcat 失败时字典可能已被部分消费：重置后按 CPU 重新跑完整字典
+                    dictionary.Reset(onlinePassword);
+                    Interlocked.Exchange(ref testedCount, 0);
+
+                    var cpuPlan = planner.Plan(
+                        options.SevenZipDllPath,
+                        archiveInfo,
+                        archivePath,
+                        dictionaryCount,
+                        gpuReady: false);
+
+                    if (cpuPlan.Mode == ExecutionMode.MultiProcess)
+                    {
+                        RunMultiProcess(options.SevenZipDllPath, dictionary, cpuPlan.WorkerCount);
+                    }
+                    else
+                    {
+                        RunThreaded(options.SevenZipDllPath, archiveInfo, dictionary, cpuPlan.ThreadParallelism);
+                    }
+                }
+            }
+            else if (Mode == ExecutionMode.MultiProcess)
             {
                 RunMultiProcess(options.SevenZipDllPath, dictionary, WorkerCount);
             }
@@ -239,6 +298,69 @@ namespace ArchivePasswordTestTool
                 });
 
             hashComputed = true;
+        }
+
+        /// <summary>
+        /// GPU 模式：hashcat 负责密钥派生，候选密码由 7z.dll 最终确认。
+        /// 返回 false 表示 GPU 会话失败（调用方需重置字典并回退 CPU）。
+        /// </summary>
+        private bool RunGpu(
+            GpuHashJob job,
+            HashcatInstallation installation,
+            ArchiveInfo archiveInfo,
+            PasswordDictionary dictionary,
+            ArchiveContext archiveContext)
+        {
+            stopwatch.Restart();
+
+            HashcatRunResult result = default!;
+
+            CreateProgress()
+                .Start(ctx =>
+                {
+                    var testProgressBar = ctx.AddTask(Resources.TestingPasswordProgress, maxValue: dictionaryCount);
+
+                    result = GpuPasswordTester.Run(
+                        job,
+                        installation,
+                        archivePath,
+                        archiveInfo,
+                        dictionary,
+                        options.SevenZipDllPath,
+                        archiveContext,
+                        submitted =>
+                        {
+                            testProgressBar.Value = Math.Min(submitted, testProgressBar.MaxValue);
+                            ConsoleTitle.ShowProgress(
+                                Resources.TestingPasswordProgress,
+                                testProgressBar.Value,
+                                testProgressBar.MaxValue);
+                        });
+
+                    // 字典确实耗尽且没找到时才拉满；失败/找到时保持真实进度
+                    if (!result.Failed
+                        && string.IsNullOrEmpty(result.Password)
+                        && result.Submitted >= dictionaryCount)
+                    {
+                        testProgressBar.Value = testProgressBar.MaxValue;
+                    }
+                });
+
+            stopwatch.Stop();
+
+            if (result.Failed)
+            {
+                Ui.WriteWarning(string.Format(Resources.GpuSessionFailed, result.Error));
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(result.Password))
+            {
+                foundPassword = result.Password;
+            }
+
+            Interlocked.Exchange(ref testedCount, result.Submitted);
+            return true;
         }
 
         /// <summary>

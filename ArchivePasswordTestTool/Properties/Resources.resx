@@ -352,4 +352,37 @@ You can also download it manually from the releases page.</value>
   <data name="BatchSummaryElapsed" xml:space="preserve">
     <value>Elapsed</value>
   </data>
+  <data name="InfoAcceleration" xml:space="preserve">
+    <value>Acceleration</value>
+  </data>
+  <data name="AccelerationCpu" xml:space="preserve">
+    <value>CPU</value>
+  </data>
+  <data name="GpuAccelerationValue" xml:space="preserve">
+    <value>GPU · {0} · hashcat {1}</value>
+  </data>
+  <data name="GpuToolsMissing" xml:space="preserve">
+    <value>GPU tools not found next to the program (hashcat.exe / 7z2hashcat64-2.0.exe); using CPU.</value>
+  </data>
+  <data name="GpuDeviceNotFound" xml:space="preserve">
+    <value>No usable GPU device was found; using CPU.</value>
+  </data>
+  <data name="GpuProbeFailed" xml:space="preserve">
+    <value>hashcat initialization failed: {0}</value>
+  </data>
+  <data name="GpuFormatUnsupported" xml:space="preserve">
+    <value>This archive format cannot use GPU acceleration; using CPU.</value>
+  </data>
+  <data name="GpuSplitUnsupported" xml:space="preserve">
+    <value>Split 7z archives cannot use GPU acceleration; using CPU.</value>
+  </data>
+  <data name="GpuExtractorFailed" xml:space="preserve">
+    <value>GPU hash extraction failed: {0}</value>
+  </data>
+  <data name="GpuSessionFailed" xml:space="preserve">
+    <value>GPU acceleration failed: {0}; falling back to CPU.</value>
+  </data>
+  <data name="GpuHashcatTooOld" xml:space="preserve">
+    <value>hashcat {0} is too old (6.x required); using CPU.</value>
+  </data>
 </root>

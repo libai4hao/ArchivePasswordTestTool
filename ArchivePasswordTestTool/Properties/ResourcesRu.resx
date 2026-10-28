@@ -352,4 +352,37 @@
   <data name="BatchSummaryElapsed" xml:space="preserve">
     <value>Время</value>
   </data>
+  <data name="InfoAcceleration" xml:space="preserve">
+    <value>Ускорение</value>
+  </data>
+  <data name="AccelerationCpu" xml:space="preserve">
+    <value>ЦП</value>
+  </data>
+  <data name="GpuAccelerationValue" xml:space="preserve">
+    <value>GPU · {0} · hashcat {1}</value>
+  </data>
+  <data name="GpuToolsMissing" xml:space="preserve">
+    <value>Рядом с программой нет инструментов GPU (hashcat.exe / 7z2hashcat64-2.0.exe); используется ЦП.</value>
+  </data>
+  <data name="GpuDeviceNotFound" xml:space="preserve">
+    <value>Подходящий GPU не найден; используется ЦП.</value>
+  </data>
+  <data name="GpuProbeFailed" xml:space="preserve">
+    <value>Не удалось инициализировать hashcat: {0}</value>
+  </data>
+  <data name="GpuFormatUnsupported" xml:space="preserve">
+    <value>Этот формат не поддерживает ускорение GPU; используется ЦП.</value>
+  </data>
+  <data name="GpuSplitUnsupported" xml:space="preserve">
+    <value>Многотомные 7z не поддерживают ускорение GPU; используется ЦП.</value>
+  </data>
+  <data name="GpuExtractorFailed" xml:space="preserve">
+    <value>Не удалось извлечь хеш для GPU: {0}</value>
+  </data>
+  <data name="GpuSessionFailed" xml:space="preserve">
+    <value>Сбой ускорения GPU: {0}; возврат к ЦП.</value>
+  </data>
+  <data name="GpuHashcatTooOld" xml:space="preserve">
+    <value>hashcat {0} слишком старый (требуется 6.x); используется ЦП.</value>
+  </data>
 </root>

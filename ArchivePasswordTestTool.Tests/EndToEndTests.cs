@@ -525,6 +525,65 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
         Assert.DoesNotContain(TestDataFixture.CorrectPassword, Output);
     }
 
+    /// <summary>
+    /// GPU 路径依赖程序目录下的 hashcat 与 7z2hashcat；CI 没有这些工具时跳过。
+    /// 本地验证时把 hashcat 发行包与 7z2hashcat64-2.0.exe 放到主程序输出目录即可。
+    /// </summary>
+    private bool GpuToolsPresent()
+    {
+        string directory = Path.GetDirectoryName(TestPaths.MainExePath)!;
+        return File.Exists(Path.Combine(directory, "hashcat.exe"))
+            && File.Exists(Path.Combine(directory, "7z2hashcat64-2.0.exe"));
+    }
+
+    [Fact]
+    public void GpuAcceleratesHeaderEncrypted7zWhenToolsArePresent()
+    {
+        if (!GpuToolsPresent())
+        {
+            output.WriteLine("跳过：主程序目录未放置 hashcat / 7z2hashcat");
+            return;
+        }
+
+        var (ExitCode, Output) = RunTool(
+            $"-D \"{fx.Dict("DictOK.txt")}\" -F \"{fx.Archive("SecretHeader.7z")}\"",
+            env: ("APTT_GPU_MIN", "0"));
+
+        Assert.Equal(0, ExitCode);
+        Assert.Contains(TestDataFixture.CorrectPassword, Output);
+        Assert.Contains("GPU ·", Output);
+    }
+
+    [Fact]
+    public void GpuAcceleratesAesZipWhenToolsArePresent()
+    {
+        if (!GpuToolsPresent())
+        {
+            output.WriteLine("跳过：主程序目录未放置 hashcat");
+            return;
+        }
+
+        var (ExitCode, Output) = RunTool(
+            $"-D \"{fx.Dict("DictOK.txt")}\" -F \"{fx.Archive("SecretZipAes.zip")}\"",
+            env: ("APTT_GPU_MIN", "0"));
+
+        Assert.Equal(0, ExitCode);
+        Assert.Contains(TestDataFixture.CorrectPassword, Output);
+        Assert.Contains("GPU ·", Output);
+    }
+
+    [Fact]
+    public void NoGpuFlagFallsBackToCpu()
+    {
+        var (ExitCode, Output) = RunTool(
+            $"-D \"{fx.Dict("DictOK.txt")}\" -F \"{fx.Archive("SecretHeader.7z")}\" -NoGpu",
+            env: ("APTT_GPU_MIN", "0"));
+
+        Assert.Equal(0, ExitCode);
+        Assert.Contains(TestDataFixture.CorrectPassword, Output);
+        Assert.DoesNotContain("GPU ·", Output);
+    }
+
     /// <summary>无参数启动主程序并经 stdin 依次喳入引导答案，返回退出码与全量输出</summary>
     private (int ExitCode, string Output) RunToolWithStdin(params string[] lines)
     {

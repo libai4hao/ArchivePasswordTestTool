@@ -136,6 +136,26 @@ namespace ArchivePasswordTestTool
         }
 
         /// <summary>
+        /// 线程安全地批量取出密码（GPU 的 stdin 喂词路径）。
+        /// 返回实际取出的数量；字典耗尽返回 0。
+        /// </summary>
+        public int PopBatch(int maxCount, List<string> destination)
+        {
+            lock (SyncRoot)
+            {
+                int count = Math.Min(maxCount, Pending.Count - Cursor);
+
+                for (int i = 0; i < count; i++)
+                {
+                    destination.Add(Pending[Cursor]!);
+                    Cursor++;
+                }
+
+                return count;
+            }
+        }
+
+        /// <summary>
         /// 线程安全地取出下一个密码；字典耗尽时返回 null（防御性兜底，正常迭代数等于 Count）
         /// </summary>
         public string? Pop()

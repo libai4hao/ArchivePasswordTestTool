@@ -136,6 +136,8 @@ public sealed class TestDataFixture
             p => RunSevenZip($"a -y \"{p}\" \"{payload}\" -p{CorrectPassword}"));
         CreateIfMissing("SecretZip.zip",
             p => RunSevenZip($"a -y \"{p}\" \"{payload}\" -p{CorrectPassword}"));
+        CreateIfMissing("SecretZipAes.zip",
+            p => RunSevenZip($"a -y -tzip -mem=AES256 \"{p}\" \"{payload}\" -p{CorrectPassword}"));
         CreateIfMissing("SecretHeader.7z",
             p => RunSevenZip($"a -y -mhe=on \"{p}\" \"{payload}\" -p{CorrectPassword}"));
 

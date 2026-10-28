@@ -65,7 +65,8 @@ namespace ArchivePasswordTestTool
             bool supportsQuickTest,
             string dictionaryPath,
             long passwordCount,
-            int parallelism)
+            int parallelism,
+            string acceleration)
         {
             var grid = new Grid();
             grid.AddColumn();
@@ -81,6 +82,7 @@ namespace ArchivePasswordTestTool
                 AddRow(grid, Resources.InfoHash, archiveHash);
             }
             AddRow(grid, Resources.InfoDictionary, dictionaryPath);
+            AddRow(grid, Resources.InfoAcceleration, acceleration);
             AddRow(grid, Resources.InfoParallelism, parallelism.ToString());
             AddRow(grid, Resources.InfoPasswords, passwordCount.ToString());
 
@@ -199,6 +201,12 @@ namespace ArchivePasswordTestTool
 
             AnsiConsole.WriteLine();
             AnsiConsole.Write(table);
+        }
+
+        /// <summary>灰色提示（不改变退出码，用于 GPU 回退等非错误信息）</summary>
+        public static void WriteNote(string message)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Escape(message)}[/]");
         }
 
         /// <summary>
