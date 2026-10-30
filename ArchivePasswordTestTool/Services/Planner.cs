@@ -44,7 +44,7 @@ namespace ArchivePasswordTestTool
             }
 
             // GPU 启动（OpenCL 初始化 + 内核编译）有固定成本，小字典交给 CPU 更快
-            int gpuMinPasswords = ResolveGpuMinPasswords(archiveInfo);
+            int gpuMinPasswords = GpuMinPasswordsFor(archiveInfo);
             if (gpuReady && dictionaryCount >= gpuMinPasswords)
             {
                 return (ExecutionMode.Gpu, 0, threadParallelism, 1);
@@ -73,10 +73,14 @@ namespace ArchivePasswordTestTool
         /// <summary>字典规模是否达到值得启用 GPU 的阈值（供 Runner 决定是否探测 hashcat）</summary>
         public static bool GpuWouldBeUsed(ArchiveInfo archiveInfo, long dictionaryCount)
         {
-            return dictionaryCount >= ResolveGpuMinPasswords(archiveInfo);
+            return dictionaryCount >= GpuMinPasswordsFor(archiveInfo);
         }
 
-        private static int ResolveGpuMinPasswords(ArchiveInfo archiveInfo)
+        /// <summary>
+        /// 当前压缩包启用 GPU 所需的字典行数。默认值按实测回本点设定，
+        /// 可被 APTT_GPU_MIN 统一覆盖（0 = 强制小字典也走 GPU）。
+        /// </summary>
+        public static int GpuMinPasswordsFor(ArchiveInfo archiveInfo)
         {
             if (int.TryParse(Environment.GetEnvironmentVariable("APTT_GPU_MIN"), out int value) && value >= 0)
             {

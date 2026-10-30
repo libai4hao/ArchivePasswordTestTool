@@ -2,6 +2,8 @@
 
 利用 7-Zip（7z.dll）对加密压缩包进行密码测试的工具，从密码字典中批量尝试密码，支持多线程并行测试与快速测试（优先测试最小的加密文件以加快验证速度）。
 
+> 文档入口：[使用手册](docs/USER_GUIDE.md) · [构建教程](docs/BUILD.md) · [开发文档](docs/DEVELOPMENT.md)
+
 ## 功能特性
 
 - 支持格式：7z、Zip、RAR（RAR4 / RAR5）
@@ -46,31 +48,37 @@ ArchivePasswordTestTool.exe -D <字典文件> [-D <字典文件> ...] -F <压缩
 
 ## GPU 加速（可选）
 
-GPU 加速通过外部的 **hashcat 6.x（OpenCL）** 完成，程序本身不内置密码学内核。
-把 hashcat 的 Windows 发行包**整体解压到程序 exe 同目录**（至少包含 `hashcat.exe`、`OpenCL\`、
-`modules\`、`hashcat.hcstat2`）；使用 7z 加速时，再把 `7z2hashcat64-2.0.exe` 放到同一目录。
-程序只在该目录查找，不搜索 PATH 或注册表。
+GPU 加速通过外部的 **hashcat 6.x / 7.x（OpenCL）** 完成，程序本身不内置密码学内核。
+把 hashcat 的 Windows 发行包（至少包含 `hashcat.exe`、`OpenCL\`、`modules\`、`hashcat.hcstat2`）
+放到**程序目录**：可以直接放在 exe 同目录，也可以整个解压成一级子目录（例如 `hashcat-6.2.6\`）。
+使用 7z 加速时，再把 `7z2hashcat64-2.0.exe` 放到同一位置。程序只在程序目录及其一级子目录查找，
+不搜索 PATH 或注册表。**建议使用较新的 hashcat（7.x / 8.x）**；程序会自动适配
+8.0.0 的参数变化（移除 `--stdin`、`--quiet` 不再抑制状态屏）。hashcat 11600 在
+大字典下编码零长度 salt 的 7z 哈希时可能崩溃或挂起（6.2.6 / 7.1.2 实测），
+本工具使用 `--quiet` + `--potfile-disable` + `--status-timer` 并设置无进展看门狗，
+失败时打印原因并回退 CPU。
 
 | 项目 | 说明 |
 |------|------|
-| 支持格式 | **header 加密 7z**（`-mhe=on`）、**WinZip AES ZIP**（AES-128/192/256） |
-| 不支持 | 普通 7z（需解压验证）、ZipCrypto ZIP、RAR4/RAR5、分卷 7z → 自动使用 CPU |
+| 支持格式 | **header 加密 7z**（`-mhe=on`，头部压缩方式 0/1/2/7 均可）、**WinZip AES ZIP**（AES-128/192/256） |
+| 不支持 | 普通 7z（仅文件数据加密）、ZipCrypto ZIP、RAR4/RAR5、分卷 7z → 自动使用 CPU |
 | 启用条件 | hashcat 可用 + GPU 设备可用 + 字典规模达到阈值（7z ≥ 25,000 行、ZIP AES ≥ 500,000 行，`APTT_GPU_MIN` 可统一覆盖） |
 | 结果确认 | hashcat 给出的候选仍逐条交给 7z.dll 实际验证，不会直接采信 |
-| 临时文件 | hash/potfile/outfile 位于独立临时目录，结束后删除 |
+| 临时文件 | hash/outfile 位于独立临时目录，结束后删除；不使用 potfile |
 
 ```text
-# 把 hashcat 解压到程序目录后直接运行即可，加速方式会显示在信息面板
+# 把 hashcat 解压到程序目录（或一级子目录）后直接运行，加速方式会显示在信息面板
 ArchivePasswordTestTool.exe -D dict.txt -F secret-header.7z
 
 # 强制使用 CPU
 ArchivePasswordTestTool.exe -D dict.txt -F secret-header.7z -NoGpu
 
-# 小字典也启用 GPU（调试/测试用）
+# 小字典也启用 GPU（调试/测试用；小字典通常比 CPU 更慢）
 set APTT_GPU_MIN=0
 ```
 
-首次启用时 hashcat 需要初始化 OpenCL 并编译内核，通常有 **10–15 秒**固定开销，因此小字典默认仍走 CPU。
+首次启用时 hashcat 需要初始化 OpenCL 并编译内核，通常有 **10–15 秒**固定开销，因此小字典默认仍走 CPU；
+字典低于阈值时程序会明确提示（而不是静默显示 CPU），需要强制启用可设 `APTT_GPU_MIN=0`。
 hashcat、7z2hashcat 均不随本程序分发；请从官方渠道获取（hashcat.net / GitHub），
 部分杀软会对压缩包破解工具误报，请自行确认来源。GPU 不可用、工具缺失或 hashcat 报错时，
 程序会打印原因并自动回退 CPU，结果与 CPU 模式一致。
@@ -132,6 +140,8 @@ ArchivePasswordTestTool.exe -D common.txt -D company.txt -F a.7z -F D:\archives 
 - 若程序目录存在 `ArchivePasswordTestToolGUI.exe`，启动命令行版时会自动拉起 GUI
 
 ## 构建与发布
+
+完整的构建/打包/GPU 工具放置步骤见 [构建教程](docs/BUILD.md)。
 
 ```text
 dotnet build -c Release

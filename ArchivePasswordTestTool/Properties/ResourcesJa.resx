@@ -361,8 +361,11 @@
   <data name="GpuAccelerationValue" xml:space="preserve">
     <value>GPU · {0} · hashcat {1}</value>
   </data>
+  <data name="GpuBelowThreshold" xml:space="preserve">
+    <value>パスワード辞書は {0} 行で、GPU 有効化のしきい値 {1} を下回っています。CPU を使用します。GPU を強制するには APTT_GPU_MIN=0 を設定してください。</value>
+  </data>
   <data name="GpuToolsMissing" xml:space="preserve">
-    <value>プログラムと同じ場所に GPU ツール（hashcat.exe / 7z2hashcat64-2.0.exe）がありません。CPU を使用します。</value>
+    <value>プログラムのディレクトリ（直下のサブフォルダを含む）に GPU ツール（hashcat.exe / 7z2hashcat64-2.0.exe）がありません。CPU を使用します。</value>
   </data>
   <data name="GpuDeviceNotFound" xml:space="preserve">
     <value>利用可能な GPU デバイスが見つかりません。CPU を使用します。</value>

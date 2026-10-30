@@ -150,6 +150,14 @@ namespace ArchivePasswordTestTool
                     out gpuInstallation,
                     out gpuReason);
             }
+            else if (!options.NoGpu && GpuPasswordTester.IsCandidateFormat(archiveInfo))
+            {
+                // 格式可加速但字典低于阈值：此前完全静默，用户会误以为 GPU 功能坏了
+                Ui.WriteNote(string.Format(
+                    Resources.GpuBelowThreshold,
+                    dictionaryCount,
+                    Planner.GpuMinPasswordsFor(archiveInfo)));
+            }
 
             // 只在"格式本可加速但工具/设备不可用"时提示，避免普通 7z/RAR 用户被噪音打扰
             if (!gpuReady

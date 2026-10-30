@@ -81,21 +81,34 @@ Runner 不直接退出进程：单包失败返回带 `Error` 的 `TestOutcome`�
 
 ### 工具放置
 
-只查**程序 exe 同目录**，不搜索 PATH/注册表：
+只查**程序目录及其一级子目录**，不搜索 PATH/注册表。hashcat 发行包通常解压成
+`hashcat-6.2.6\`，因此允许直接放在 exe 同目录，或整个子目录放进来：
 
 ```text
 ArchivePasswordTestTool.exe
-hashcat.exe                  ← hashcat 6.x 发行包
+hashcat.exe                  ← hashcat 6.x 发行包（放在这里）
 OpenCL\  modules\  hashcat.hcstat2  ...
 7z2hashcat64-2.0.exe         ← 仅 7z 需要
+
+# 或者：
+hashcat-6.2.6\
+  hashcat.exe
+  OpenCL\  modules\  hashcat.hcstat2
+  7z2hashcat64-2.0.exe
 ```
 
-hashcat 的工作目录固定为程序目录，否则找不到 `OpenCL\` 与 `modules\`。
+查找顺序：exe 同目录 → 一级子目录（按名称排序）。hashcat 的工作目录设为
+`hashcat.exe` 实际所在目录，否则找不到同目录的 `OpenCL\` 与 `modules\`。
+7z2hashcat 先找精确的 `7z2hashcat64-2.0.exe`，再接受 `7z2hashcat*.exe`。
 
 ### 哈希提取
 
-- **7z**：调用 `7z2hashcat64-2.0.exe --skip-sensitive-data-warning <archive>`，
-  只接受输出中 `$7z$` 的 **type 0**（header 加密）。普通 7z 的 type 2 直接回退 CPU。
+- **7z**：调用 `7z2hashcat64-2.0.exe --skip-sensitive-data-warning <archive>`。
+  只处理 header 加密 7z（由 `ArchiveInfo.IsHeaderEncryption` 判定）；`$7z$` 的
+  **data_type 是加密头解密后的压缩方法，不是「是否 header 加密」**：
+  0=原始、1=LZMA1、2=LZMA2、7=DEFLATE，hashcat 11600 全部支持。
+  `0x80`（数据截断）与其他未登记类型直接回退 CPU。普通 7z 的哈希对应文件数据，
+  不在首期范围内。
 - **ZIP**：自研 `ZipAesHashReader`：
   EOCD → 中央目录 → 本地头 → `0x9901` AES extra field；
   AES-128/192/256 的 salt 分别为 8/12/16 字节，密文长度 = 压缩大小 - salt - 2 - 10。
@@ -105,9 +118,33 @@ hashcat 的工作目录固定为程序目录，否则找不到 `OpenCL\` 与 `mo
 哈希格式来自 hashcat 6.2.6 的 `module_11600.c` / `module_13600.c`：
 
 ```text
-$7z$<type>$<cycles>$<saltLen>$<salt>$<ivLen>$<iv>$<crc>$<dataLen>$<unpackSize>$<data>
+$7z$<data_type>$<cycles>$<saltLen>$<salt>$<ivLen>$<iv>$<crc>$<dataLen>$<unpackSize>$<data>
 $zip2$*0*<mode>*0*<salt>*<verify>*<cipherLen>*<cipher>*<auth>*$/zip2$
 ```
+
+> 案例：`TestData/4.7z` 是 header 加密，但 7z2hashcat 输出 `$7z$1$...`（LZMA1 压缩的头）。
+> 早期实现把 1 误判成「普通 7z」而拒绝，导致该包始终走 CPU；迭代 03 修正为按 data_type 集合校验。
+
+### hashcat 版本
+
+程序接受 6.x / 7.x。实测 **6.2.6 与 7.1.2** 在大字典（14,459,679 行）下都会崩溃，
+栈为 `module_11600.dll module_hash_encode() -> vsnprintf()`：崩溃发生在 **hash 编码**
+（状态显示 / potfile 写入）路径，而不是 GPU 内核。`4.7z` 的 7z 哈希 salt 长度为 0，
+`module_hash_encode` 用 `%s` 输出盐缓冲区，零长度时没有保证的终止符——
+属于 hashcat 模块侧缺陷（type 0 的 `SecretHeader.7z` 也能复现；100k/500k 行正常）。
+
+本工具的规避方式：`--quiet` + `--potfile-disable`（候选由 7z.dll 确认，不需要 potfile），
+并设置 120 秒无进展看门狗——hashcat 卡死时进程不会退出，看门狗会终止它并回退 CPU。
+
+**8.0.0 兼容性**：8.0.0 移除了 `--stdin`（`-a 0` 且不提供 wordlist 时自动读 stdin），
+且 `--quiet` 不再抑制状态屏；状态打印会调用 `module_hash_encode`，因此程序按版本选择参数：
+
+| 版本 | stdin | 状态 |
+|------|-------|------|
+| 6.x / 7.x | `--stdin` | `--quiet` |
+| 8.x | `-a 0`（无 wordlist） | `--quiet --status-timer 3600` |
+
+7.x/8.x 的 `-I` 输出为 `Backend Device ID #01`（两位数字），设备 ID 取前导数字后 `-d 1` 仍然有效。
 
 ### 会话与确认
 
@@ -119,7 +156,9 @@ $zip2$*0*<mode>*0*<salt>*<verify>*<cipherLen>*<cipher>*<auth>*$/zip2$
   其余用现有 `ArchiveContext.TestPassword`；
 - ZIP AES 的 2 字节 verifier 有 1/65536 假阳性，`--keep-guessing` 保证继续；
 - 找到确认密码后立即终止 hashcat；失败则 `dictionary.Reset()` 后回退 CPU；
-- 临时 hash/potfile/outfile 放在 `%TEMP%\ApttHashcat-<guid>`，`finally` 删除。
+- 临时 hash/outfile 放在 `%TEMP%\ApttHashcat-<guid>`，`finally` 删除；使用 `--potfile-disable`
+  （候选由 7z.dll 确认，potfile 只会多一次 hash 编码，且 hashcat 11600 的
+  `module_hash_encode` 在零长度 salt 哈希上可能崩溃）。
 
 ### 阈值与探测成本
 
@@ -132,13 +171,17 @@ $zip2$*0*<mode>*0*<salt>*<verify>*<cipherLen>*<cipher>*<auth>*$/zip2$
 
 `APTT_GPU_MIN` 可统一覆盖两个阈值。hashcat 首次 `-I` 与内核编译约 10–15 秒，
 小字典走 GPU 反而更慢；Runner 在字典低于阈值时**不会探测 hashcat**，
-避免无意义的十几秒启动开销。
+避免无意义的十几秒启动开销，并输出一条提示说明当前行数、阈值与
+`APTT_GPU_MIN=0` 的强制方式（此前完全静默，容易被误认为 GPU 功能损坏）。
 
 ### 测试
 
-- 无 hashcat/GPU 的 CI：`HashExtractionTests` 覆盖 ZIP 解析；GPU E2E 自动跳过。
-- 本地验证：把 hashcat 发行包与 `7z2hashcat64-2.0.exe` 放到主程序输出目录，
-  `EndToEndTests` 的 GPU 用例会真实运行；`-NoGpu` 用例固定 CPU 路径。
+- 无 hashcat/GPU 的 CI：`HashExtractionTests` 覆盖 ZIP 解析与 `$7z$` data_type 校验；
+  `GpuToolLocatorTests` 覆盖同目录/一级子目录查找；GPU E2E 自动跳过。
+- 本地验证：把 hashcat 发行包与 `7z2hashcat64-2.0.exe` 放到主程序输出目录
+  （或其一级子目录），`EndToEndTests` 的 GPU 用例会真实运行；`-NoGpu` 用例固定 CPU 路径。
+- `4.7z` 这类 LZMA1 头部（`$7z$1$`）必须走 GPU：用 ≥25,000 行字典，
+  或 `APTT_GPU_MIN=0` 强制小字典；2,100 行时 CPU 约 512 个/秒，GPU 固定开销反而更慢。
 
 ## 多进程测密（仅 7z）
 

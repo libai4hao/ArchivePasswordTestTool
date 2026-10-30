@@ -361,8 +361,11 @@
   <data name="GpuAccelerationValue" xml:space="preserve">
     <value>GPU · {0} · hashcat {1}</value>
   </data>
+  <data name="GpuBelowThreshold" xml:space="preserve">
+    <value>密码字典 {0} 行，低于 GPU 启用阈值 {1}；使用 CPU。设置 APTT_GPU_MIN=0 可强制启用 GPU。</value>
+  </data>
   <data name="GpuToolsMissing" xml:space="preserve">
-    <value>未在程序目录找到 GPU 工具（hashcat.exe / 7z2hashcat64-2.0.exe），使用 CPU。</value>
+    <value>未在程序目录及其一级子目录找到 GPU 工具（hashcat.exe / 7z2hashcat64-2.0.exe），使用 CPU。</value>
   </data>
   <data name="GpuDeviceNotFound" xml:space="preserve">
     <value>未找到可用的 GPU 设备，使用 CPU。</value>

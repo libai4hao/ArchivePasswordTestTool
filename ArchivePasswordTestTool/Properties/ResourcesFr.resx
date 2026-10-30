@@ -361,8 +361,11 @@ Vous pouvez aussi le télécharger manuellement depuis la page des versions.</va
   <data name="GpuAccelerationValue" xml:space="preserve">
     <value>GPU · {0} · hashcat {1}</value>
   </data>
+  <data name="GpuBelowThreshold" xml:space="preserve">
+    <value>Le dictionnaire contient {0} entrées, sous le seuil GPU de {1} ; utilisation du processeur. Définissez APTT_GPU_MIN=0 pour forcer le GPU.</value>
+  </data>
   <data name="GpuToolsMissing" xml:space="preserve">
-    <value>Outils GPU introuvables à côté du programme (hashcat.exe / 7z2hashcat64-2.0.exe) ; utilisation du processeur.</value>
+    <value>Outils GPU introuvables dans le répertoire du programme ou ses sous-dossiers directs (hashcat.exe / 7z2hashcat64-2.0.exe) ; utilisation du processeur.</value>
   </data>
   <data name="GpuDeviceNotFound" xml:space="preserve">
     <value>Aucun GPU utilisable trouvé ; utilisation du processeur.</value>

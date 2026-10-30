@@ -955,6 +955,15 @@ namespace ArchivePasswordTestTool.Properties
             }
         }
 
+        /// <summary>查找类似 The dictionary has {0} entries, below the GPU threshold of {1} ... 的本地化字符串。</summary>
+        public static string GpuBelowThreshold
+        {
+            get
+            {
+                return EmbeddedResourceManager.GetString("GpuBelowThreshold", resourceCulture);
+            }
+        }
+
         /// <summary>查找类似 No usable GPU device was found; using CPU. 的本地化字符串。</summary>
         public static string GpuDeviceNotFound
         {

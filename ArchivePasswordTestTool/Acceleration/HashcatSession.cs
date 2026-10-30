@@ -11,7 +11,7 @@ namespace ArchivePasswordTestTool
 
     /// <summary>
     /// 一次 hashcat 会话：把字典按顺序经 stdin 灌入，轮询 outfile 获取候选，
-    /// 由调用方用 7z.dll 最终确认。临时 hash/potfile/outfile 放在独立目录并清理。
+    /// 由调用方用 7z.dll 最终确认。临时 hash/outfile 放在独立目录并清理。
     /// </summary>
     internal static class HashcatSession
     {
@@ -31,6 +31,7 @@ namespace ArchivePasswordTestTool
             Task? writerTask = null;
             long submitted = 0;
             string? foundPassword = null;
+            string? sessionName = null;
 
             try
             {
@@ -38,7 +39,6 @@ namespace ArchivePasswordTestTool
 
                 string hashPath = Path.Combine(tempDirectory, "hash.txt");
                 string outPath = Path.Combine(tempDirectory, "cracked.txt");
-                string potPath = Path.Combine(tempDirectory, "hashcat.potfile");
 
                 File.WriteAllText(hashPath, hashLine + "\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
@@ -52,21 +52,43 @@ namespace ArchivePasswordTestTool
                     WorkingDirectory = installation.WorkingDirectory,
                 };
 
-                string sessionName = "Aptt" + Guid.NewGuid().ToString("N")[..12];
+                sessionName = "Aptt" + Guid.NewGuid().ToString("N")[..12];
 
                 void Add(string value) => startInfo.ArgumentList.Add(value);
 
                 Add("-m");
                 Add(mode.ToString());
                 Add(hashPath);
-                Add("--stdin");
+
+                // hashcat 8.0.0 移除了 --stdin：直接 -a 0 且不给 wordlist 时从 stdin 读；
+                // 6.x / 7.x 仍需要 --stdin
+                bool useStdinFlag = !Version.TryParse(installation.Version, out Version? hashcatVersion)
+                    || hashcatVersion.Major < 8;
+
+                if (useStdinFlag)
+                {
+                    Add("--stdin");
+                }
+                else
+                {
+                    Add("-a");
+                    Add("0");
+
+                    // hashcat 8.0.0 的 --quiet 不再抑制状态屏；状态打印会调用
+                    // module_hash_encode（11600 零长度 salt 的崩溃点），把更新间隔拉到最大
+                    Add("--status-timer");
+                    Add("3600");
+                }
+
                 Add("--keep-guessing");
                 Add("--outfile");
                 Add(outPath);
                 Add("--outfile-format");
                 Add("2");
-                Add("--potfile-path");
-                Add(potPath);
+                // 不使用 potfile：候选由 7z.dll 确认，potfile 只会多一次 hash 编码；
+                // hashcat 11600 在某些 7z 哈希上 module_hash_encode 会崩溃（零长度 salt），
+                // 关闭 potfile 可绕开这条路径
+                Add("--potfile-disable");
                 Add("--restore-disable");
                 Add("--logfile-disable");
                 Add("--session");
@@ -146,6 +168,13 @@ namespace ArchivePasswordTestTool
                 int seenLines = 0;
                 long lastReported = -1;
 
+                // hashcat 11600 在部分 7z 哈希上会卡死（模块编码崩溃后 WER 挂起进程），
+                // 进程不退出、writer 阻塞、界面永远停在同一个百分比。
+                // 用「stdin 提交量长时间不增长」作为无进展判据，超时后走正常失败回退 CPU。
+                const int NoProgressTimeoutMs = 120_000;
+                long lastObservedSubmitted = 0;
+                long lastProgressTick = Environment.TickCount64;
+
                 while (true)
                 {
                     foreach (string candidate in ReadNewCandidates(outPath, ref seenLines))
@@ -163,6 +192,12 @@ namespace ArchivePasswordTestTool
                     }
 
                     long current = Interlocked.Read(ref submitted);
+                    if (current != lastObservedSubmitted)
+                    {
+                        lastObservedSubmitted = current;
+                        lastProgressTick = Environment.TickCount64;
+                    }
+
                     if (current != lastReported)
                     {
                         onProgress?.Invoke(current);
@@ -182,6 +217,15 @@ namespace ArchivePasswordTestTool
                         }
 
                         break;
+                    }
+
+                    if (Environment.TickCount64 - lastProgressTick > NoProgressTimeoutMs)
+                    {
+                        return new HashcatRunResult(
+                            null,
+                            current,
+                            true,
+                            $"hashcat made no progress for {NoProgressTimeoutMs / 1000} s");
                     }
 
                     Thread.Sleep(100);
@@ -245,6 +289,13 @@ namespace ArchivePasswordTestTool
                 }
                 catch (AggregateException)
                 {
+                }
+
+                // hashcat 会在工作目录（程序目录或工具子目录）写 <session>.pid/.induct/.outfiles，
+                // 这些不是我们创建的临时目录内容；不清理会一直堆在程序目录里
+                if (sessionName is not null)
+                {
+                    TryDeleteSessionFiles(installation.WorkingDirectory, sessionName);
                 }
 
                 TryDeleteDirectory(tempDirectory);
@@ -318,6 +369,40 @@ namespace ArchivePasswordTestTool
             catch (Exception)
             {
                 // 进程已退出/无权操作，忽略
+            }
+        }
+
+        /// <summary>
+        /// 删除 hashcat 写在工具目录里的本次会话文件（进程已终止后调用）。
+        /// <c>.induct</c> / <c>.outfiles</c> 是目录，其余是文件；句柄可能延迟释放，重试几次。
+        /// </summary>
+        private static void TryDeleteSessionFiles(string directory, string sessionName)
+        {
+            foreach (string suffix in new[] { ".pid", ".induct", ".outfiles", ".log" })
+            {
+                string path = Path.Combine(directory, sessionName + suffix);
+
+                for (int attempt = 0; attempt < 5; attempt++)
+                {
+                    try
+                    {
+                        if (Directory.Exists(path))
+                        {
+                            Directory.Delete(path, recursive: true);
+                        }
+                        else
+                        {
+                            File.Delete(path);
+                        }
+
+                        break;
+                    }
+                    catch (Exception)
+                    {
+                        // 句柄未释放/无权限：稍后重试
+                        Thread.Sleep(100);
+                    }
+                }
             }
         }
 

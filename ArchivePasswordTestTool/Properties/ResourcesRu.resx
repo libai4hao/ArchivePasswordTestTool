@@ -361,8 +361,11 @@
   <data name="GpuAccelerationValue" xml:space="preserve">
     <value>GPU · {0} · hashcat {1}</value>
   </data>
+  <data name="GpuBelowThreshold" xml:space="preserve">
+    <value>В словаре {0} строк — меньше порога GPU {1}; используется ЦП. Задайте APTT_GPU_MIN=0, чтобы принудительно включить GPU.</value>
+  </data>
   <data name="GpuToolsMissing" xml:space="preserve">
-    <value>Рядом с программой нет инструментов GPU (hashcat.exe / 7z2hashcat64-2.0.exe); используется ЦП.</value>
+    <value>В каталоге программы или его подкаталогах первого уровня нет инструментов GPU (hashcat.exe / 7z2hashcat64-2.0.exe); используется ЦП.</value>
   </data>
   <data name="GpuDeviceNotFound" xml:space="preserve">
     <value>Подходящий GPU не найден; используется ЦП.</value>

@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using ArchivePasswordTestTool.Properties;
 using ArchivePasswordTestTool.Tests.Infrastructure;
 
 namespace ArchivePasswordTestTool.Tests;
@@ -570,6 +572,38 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
         Assert.Equal(0, ExitCode);
         Assert.Contains(TestDataFixture.CorrectPassword, Output);
         Assert.Contains("GPU ·", Output);
+    }
+
+    /// <summary>
+    /// 字典低于 GPU 阈值时必须说明原因，而不是静默显示 CPU（用户会误以为 GPU 功能坏了）。
+    /// 文案从五套资源枚举，避免只在中文界面下命中。
+    /// </summary>
+    [Fact]
+    public void BelowThresholdDictionaryExplainsCpuFallback()
+    {
+        int dictionaryLines = File.ReadLines(fx.Dict("BigDictionary.txt")).Count();
+        const int threshold = 1_000_000;
+
+        var (ExitCode, Output) = RunTool(
+            $"-D \"{fx.Dict("BigDictionary.txt")}\" -F \"{fx.Archive("SecretHeader.7z")}\"",
+            env: ("APTT_GPU_MIN", threshold.ToString(CultureInfo.InvariantCulture)));
+
+        Assert.Equal(0, ExitCode);
+
+        string[] cultures = ["en", "zh-CN", "ja", "fr", "ru"];
+        string[] expected = cultures
+            .Select(culture => string.Format(
+                EmbeddedResourceManager.GetString("GpuBelowThreshold", new CultureInfo(culture))!,
+                dictionaryLines,
+                threshold))
+            .ToArray();
+
+        // 控制台会在空格处换行，比较前去掉全部空白，避免宽度相关的假失败
+        string compactOutput = string.Concat(Output.Where(character => !char.IsWhiteSpace(character)));
+
+        Assert.Contains(expected, message => compactOutput.Contains(
+            string.Concat(message.Where(character => !char.IsWhiteSpace(character))),
+            StringComparison.Ordinal));
     }
 
     [Fact]

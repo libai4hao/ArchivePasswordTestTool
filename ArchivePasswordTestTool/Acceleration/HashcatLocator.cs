@@ -20,22 +20,21 @@ namespace ArchivePasswordTestTool
     internal sealed record HashcatProbeResult(bool Available, HashcatInstallation? Installation, string Reason);
 
     /// <summary>
-    /// 只从程序 exe 所在目录查找 hashcat.exe（迭代 02 决策 D5）。
+    /// 只在程序目录内查找 hashcat.exe：先查 exe 同目录，再查一级子目录
+    /// （迭代 02 决策 D5，迭代 03 放宽为「程序目录及一级子目录」）。
     /// 版本与设备探测各启动一次 hashcat，结果缓存到进程结束。
     /// </summary>
     internal static class HashcatLocator
     {
-        private const string ExeName = "hashcat.exe";
-
         private static readonly Lazy<HashcatProbeResult> CachedProbe = new(Probe);
 
         public static HashcatProbeResult ProbeOnce() => CachedProbe.Value;
 
         private static HashcatProbeResult Probe()
         {
-            string exePath = Path.Combine(AppContext.BaseDirectory, ExeName);
+            string? exePath = GpuToolLocator.FindHashcat();
 
-            if (!File.Exists(exePath))
+            if (exePath is null)
             {
                 return new HashcatProbeResult(false, null, Resources.GpuToolsMissing);
             }
@@ -76,7 +75,7 @@ namespace ArchivePasswordTestTool
                 true,
                 new HashcatInstallation(
                     exePath,
-                    AppContext.BaseDirectory,
+                    Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory,
                     version,
                     device.Value.Id,
                     device.Value.Name,
@@ -98,7 +97,8 @@ namespace ArchivePasswordTestTool
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
-                    WorkingDirectory = AppContext.BaseDirectory,
+                    // hashcat 需要从自身目录加载 OpenCL\、modules\、hashcat.hcstat2
+                    WorkingDirectory = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory,
                 };
 
                 foreach (string argument in arguments)
@@ -179,7 +179,9 @@ namespace ArchivePasswordTestTool
                 if (line.StartsWith("Backend Device ID #", StringComparison.Ordinal))
                 {
                     Commit();
-                    currentId = line["Backend Device ID #".Length..].Trim();
+                    // 形如 "Backend Device ID #1" 或 "Backend Device ID #1 (Alias: #2)"：
+                    // -d 只接受数字，取前导编号，别名不影响主设备选择
+                    currentId = LeadingNumber(line["Backend Device ID #".Length..]);
                     type = name = vendor = string.Empty;
                     continue;
                 }
@@ -206,6 +208,7 @@ namespace ArchivePasswordTestTool
             Commit();
 
             var gpu = devices
+                .Where(device => !string.IsNullOrEmpty(device.Id))
                 .Where(device => device.Type.Contains("GPU", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(device =>
                     device.Vendor.Contains("AMD", StringComparison.OrdinalIgnoreCase)
@@ -225,6 +228,18 @@ namespace ArchivePasswordTestTool
         {
             int index = line.IndexOf(':');
             return index >= 0 ? line[(index + 1)..].Trim() : string.Empty;
+        }
+
+        /// <summary>取字符串开头的连续数字；没有数字时返回空串</summary>
+        private static string LeadingNumber(string value)
+        {
+            int length = 0;
+            while (length < value.Length && char.IsAsciiDigit(value[length]))
+            {
+                length++;
+            }
+
+            return value[..length];
         }
 
         private static string StripAnsi(string value)
