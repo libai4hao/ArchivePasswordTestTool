@@ -1,7 +1,7 @@
 # 使用手册
 
 ArchivePasswordTestTool 用 7-Zip 引擎对加密压缩包做密码字典测试，
-支持多字典、多压缩包/文件夹、交互式下一轮，以及可选的 hashcat GPU 加速。
+支持多字典、多压缩包/文件夹、交互式下一轮，以及可选的 hashcat GPU 加速(已适配AMD显卡)。
 构建与打包见 [构建教程](BUILD.md)，架构与取舍见 [开发文档](DEVELOPMENT.md)。
 
 ## 1. 快速开始
