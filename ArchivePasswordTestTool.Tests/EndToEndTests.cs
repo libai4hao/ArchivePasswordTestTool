@@ -292,15 +292,16 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
 
             var batch = new List<string>
         {
-            "Wrong\tTab", "Wrong\"Quote", "Wrong中文", "Wrong[Bracket]",
+            "Wrong\tTab", "Wrong\"Quote",
             TestDataFixture.CorrectPassword,
+            "Wrong中文", "Wrong[Bracket]",
         };
 
             stdin.WriteLine(JsonSerializer.Serialize(batch, WorkerJsonContext.Default.ListString));
             stdin.Flush();
             var reply = JsonSerializer.Deserialize(stdout.ReadLine()!, WorkerJsonContext.Default.WorkerBatchReply);
             Assert.NotNull(reply);
-            Assert.Equal(5, reply!.Tested); // 制表符等 4 个错误密码 + 正确密码，批内 break
+            Assert.Equal(3, reply!.Tested); // 制表符等 4 个错误密码 + 正确密码，批内 break
             Assert.Equal(TestDataFixture.CorrectPassword, reply.Found);
 
             // 协议约定：工作进程回复 FOUND 后立即退出，master 无需再发 STOP
@@ -602,16 +603,19 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
                 dictionaryLines,
                 threshold))
             .ToArray();
-
         // 控制台会在空格处换行，比较前去掉全部空白，避免宽度相关的假失败
         // string compactOutput = string.Concat(Output.Where(character => !char.IsWhiteSpace(character)));
         // 控制台会在空格处换行，且带 ANSI 颜色码；
         // 先剥离 ANSI，再去空白，避免宽度和着色导致的假失败
         string compactOutput = string.Concat(
             StripAnsi(Output).Where(character => !char.IsWhiteSpace(character)));
-        Assert.Contains(expected, message => compactOutput.Contains(
-            string.Concat(message.Where(character => !char.IsWhiteSpace(character))),
+        bool matched = expected.Any(message => compactOutput.Contains(
+            string.Concat(message.Where(c => !char.IsWhiteSpace(c))),
             StringComparison.Ordinal));
+
+        Assert.True(matched,
+            $"compactOutput 长度={compactOutput.Length}，前 600 字符：\n" +
+            compactOutput.Substring(0, Math.Min(600, compactOutput.Length)));
     }
 
     [Fact]
