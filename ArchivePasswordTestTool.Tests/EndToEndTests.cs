@@ -61,6 +61,7 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
 
         Assert.Equal(0, ExitCode);
         Assert.DoesNotContain(TestDataFixture.CorrectPassword, Output);
+        Assert.False(string.IsNullOrWhiteSpace(StripAnsi(Output)), "程序未输出任何结论");
     }
 
     [Fact]
@@ -509,7 +510,9 @@ public sealed class EndToEndTests(TestDataFixture fx, ITestOutputHelper output)
         }
         finally
         {
-            Directory.Delete(dir, recursive: true);
+            try { Directory.Delete(dir, recursive: true); }
+            catch (IOException ex) { output.WriteLine($"清理失败（已忽略）：{ex.Message}"); }
+            catch (UnauthorizedAccessException ex) { output.WriteLine($"清理失败（已忽略）：{ex.Message}"); }
         }
     }
 
